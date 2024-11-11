@@ -1,4 +1,5 @@
-﻿using Sandbox.Game.Entities;
+﻿using Draygo.API;
+using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Interfaces.Terminal;
 using System;
@@ -27,7 +28,9 @@ namespace NavMarkers
         public string SessionName = "";
         public string NavMarkerFile = "NavMarkers";
         public bool NavMarkerState = false;
-        public NavMarkerDict NavMarkers = new NavMarkerDict() { markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
+        public bool SaveQueued = false;
+        public NavMarkerData NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
+        public HudAPIv2 HudAPI;
         
 
         private bool shouldLog = false;
@@ -74,14 +77,23 @@ namespace NavMarkers
             }
         }
 
+        protected override void UnloadData()
+        {
+            if (Tools.IsDedicatedServer == false)
+            {
+                SaveMarkers(true);
+            }
+        }
+
         private void SaveMarkers(bool writeFile)
         {
             try
             {
+                NavMarkers.Enabled = NavMarkerState;
                 if (writeFile)
                 {
                     TextWriter writer;
-                    writer = MyAPIGateway.Utilities.WriteFileInLocalStorage(NavMarkerFile, typeof(NavMarkerDict));
+                    writer = MyAPIGateway.Utilities.WriteFileInLocalStorage(NavMarkerFile, typeof(NavMarkerData));
                     writer.Write(MyAPIGateway.Utilities.SerializeToXML(NavMarkers));
                     writer.Close();
                     Tools.Log($"{ModName} Saved nav markers: {NavMarkerFile}");
@@ -99,12 +111,13 @@ namespace NavMarkers
             NavMarkerFile = "NavMarkers" + SessionName + ".dat";
             try
             {
-                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(NavMarkerFile, typeof (NavMarkerDict)))
+                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(NavMarkerFile, typeof (NavMarkerData)))
                 {
-                    TextReader reader = MyAPIGateway.Utilities.ReadFileInLocalStorage(NavMarkerFile, typeof( NavMarkerDict));
+                    TextReader reader = MyAPIGateway.Utilities.ReadFileInLocalStorage(NavMarkerFile, typeof( NavMarkerData));
                     var data = reader.ReadToEnd();
                     reader.Close();
-                    NavMarkers = MyAPIGateway.Utilities.SerializeFromXML<NavMarkerDict>(data);
+                    NavMarkers = MyAPIGateway.Utilities.SerializeFromXML<NavMarkerData>(data);
+                    NavMarkerState = NavMarkers.Enabled;
                     Tools.Log($"{ModName} Loaded nav markers: {NavMarkerFile}");
                 }
                 else
@@ -114,7 +127,7 @@ namespace NavMarkers
             }
             catch (Exception ex)
             {
-                Tools.Log($"{ModName}: Failed to load marker data");
+                Tools.Log($"{ModName}: Failed to load marker data {ex}");
                 MyAPIGateway.Utilities.ShowMessage($"{ModName}", $"Error loading saved info");
             }
         }
@@ -159,60 +172,72 @@ namespace NavMarkers
                 return;
             }
             
-            foreach (NavMarker marker in NavMarkers.markers.Dictionary.Values)
+            if (NavMarkerState)
             {
-                IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
-                double distance = Vector3D.Distance(player.GetPosition(), marker.Position);
-                double distanceFromEdge = Math.Abs(distance - marker.Radius);
-                double sizeMultiplier = marker.Radius / 100000.0;
-
-                Color color = marker.Color;
-                MatrixD matrix = MatrixD.Identity;
-                matrix.Translation = marker.Position;
-                color.A = (byte)80;
-                float radius = (float)marker.Radius / 1000.0f;
-
-                int wireSegments = Math.Max(2, (int)(marker.Radius * 3 / distanceFromEdge)) * 12;
-                MySimpleObjectRasterizer rasterMode = MySimpleObjectRasterizer.SolidAndWireframe;
-                VRageRender.MyBillboard.BlendTypeEnum blendType = VRageRender.MyBillboard.BlendTypeEnum.Standard;
-                if (distance < marker.Radius)
+                foreach (NavMarker marker in NavMarkers.Markers.Dictionary.Values)
                 {
-                    distanceFromEdge = Math.Abs(marker.Radius - distance);
+                    IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
+                    double distance = Vector3D.Distance(player.GetPosition(), marker.Position);
+                    double distanceFromEdge = Math.Abs(distance - marker.Radius);
+                    double sizeMultiplier = marker.Radius / 100000.0;
+
+                    Color color = marker.Color;
+                    MatrixD matrix = MatrixD.Identity;
+                    matrix.Translation = marker.Position;
+                    color.A = (byte)60;
+                    float radius = (float)marker.Radius / 1000.0f;
+
+                    int wireSegments = Math.Max(2, (int)(marker.Radius * 3 / distanceFromEdge)) * 12;
+                    MySimpleObjectRasterizer rasterMode = MySimpleObjectRasterizer.SolidAndWireframe;
+                    VRageRender.MyBillboard.BlendTypeEnum blendType = VRageRender.MyBillboard.BlendTypeEnum.Standard;
+                    if (distance < marker.Radius)
+                    {
+                        distanceFromEdge = Math.Abs(marker.Radius - distance);
+                        rasterMode = MySimpleObjectRasterizer.Wireframe;
+                        wireSegments = radius > 100 ? 36 : 24;
+                        blendType = VRageRender.MyBillboard.BlendTypeEnum.AdditiveBottom;
+                    }
+
+                    float wireframeWidth = (float)((distanceFromEdge / marker.Radius) * 250f * sizeMultiplier);
+                    wireSegments = Math.Min(36, wireSegments);
+                    wireframeWidth = Math.Max(radius, Math.Min(150.0f * (float)sizeMultiplier, wireframeWidth));
+                    if (shouldLog)
+                    {
+                        shouldLog = false;
+                        MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"segments = {wireSegments}, width= {wireframeWidth}, distanceFromEdge= {distanceFromEdge}, sizeMultiplier= {sizeMultiplier}");
+                    }
+
                     rasterMode = MySimpleObjectRasterizer.Wireframe;
-                    wireSegments = radius > 100 ? 36 : 24;
                     blendType = VRageRender.MyBillboard.BlendTypeEnum.AdditiveBottom;
+                    //ref matrix, Radius.Value, ref color, MySimpleObjectRasterizer.Solid, 20, null, MyStringId.GetOrCompute("KothTransparency"), 0.12f, -1, null);
+                    MySimpleObjectDraw.DrawTransparentSphere(
+                        ref matrix,
+                        marker.Radius,
+                        ref color,
+                        rasterMode,
+                        wireSegments,
+                        MyStringId.GetOrCompute("NavMarkerTransparency"),
+                        MyStringId.GetOrCompute("NavMarkerLines"),
+                        wireframeWidth,
+                        -1,
+                        null,
+                        blendType,
+                        0.5f
+                    );
                 }
-
-                float wireframeWidth = (float)((distanceFromEdge / marker.Radius) * 250f * sizeMultiplier);
-                wireSegments = Math.Min(36, wireSegments);
-                wireframeWidth = Math.Max(radius, Math.Min(200.0f * (float)sizeMultiplier, wireframeWidth));
-                if (shouldLog)
-                {
-                    shouldLog = false;
-                    MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"segments = {wireSegments}, width= {wireframeWidth}, distanceFromEdge= {distanceFromEdge}, sizeMultiplier= {sizeMultiplier}");
-                }
-
-                //ref matrix, Radius.Value, ref color, MySimpleObjectRasterizer.Solid, 20, null, MyStringId.GetOrCompute("KothTransparency"), 0.12f, -1, null);
-                MySimpleObjectDraw.DrawTransparentSphere(
-                    ref matrix,
-                    marker.Radius,
-                    ref color,
-                    rasterMode,
-                    wireSegments,
-                    MyStringId.GetOrCompute("NavMarkerTransparency"),
-                    MyStringId.GetOrCompute("NavMarkerLines"),
-                    wireframeWidth,
-                    -1,
-                    null,
-                    blendType,
-                    10
-                );
             }
+
+            if (SaveQueued)
+            {
+                SaveQueued = false;
+                SaveMarkers(true);
+            }
+
         }
 
         public void AddNavMarker(string name, Vector3D coords, double radius, Color color)
         {
-            if (NavMarkers.markers.Dictionary.ContainsKey(name))
+            if (NavMarkers.Markers.Dictionary.ContainsKey(name))
             {
                 return;
             }
@@ -223,7 +248,18 @@ namespace NavMarkers
             marker.Radius = (float)radius;
             marker.Color = color;
             
-            NavMarkerSession.Instance.NavMarkers.markers.Dictionary.Add(name, marker);
+            NavMarkerSession.Instance.NavMarkers.Markers.Dictionary.Add(name, marker);
+            SaveQueued = true;
+        }
+
+        public void RemoveNavMarker(string name)
+        {
+            if (NavMarkers.Markers.Dictionary.ContainsKey(name) == false)
+            {
+                return;
+            }
+            NavMarkerSession.Instance.NavMarkers.Markers.Dictionary.Remove(name);
+            SaveQueued = true;
         }
     }
 }

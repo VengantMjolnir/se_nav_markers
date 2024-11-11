@@ -154,12 +154,10 @@ namespace NavMarkers
                 int index = SelectedGps;
                 IMyGps gps = gpsList[index];
 
-                string scanPattern = ".*\\(R-(\\d+)\\)";
-                Match match = Regex.Match(gps.Name, scanPattern);
-                MyLog.Default.WriteLineAndConsole($"Input string: {gps.Name} Regex result: {match.Success} Regex result: {match.Groups[1].Value}");
-
-                double radius = match.Success ? int.Parse(match.Groups[1].Value) * 1000 : 1000;
-                NavMarkerSession.Instance.AddNavMarker(gps.Name, gps.Coords, radius, gps.GPSColor);
+                double radius;
+                bool success = Tools.TryParseGPSRange(gps.Name, out radius);
+                
+                NavMarkerSession.Instance.AddNavMarker(gps.Name, gps.Coords, success ? radius : 1000.0, gps.GPSColor);
                 SelectedGps = -1;
             }
             catch (Exception ex)
@@ -178,7 +176,7 @@ namespace NavMarkers
             }
             try
             {
-                NavMarkerSession.Instance.NavMarkers.markers.Dictionary.Remove(SelectedMarker);
+                NavMarkerSession.Instance.RemoveNavMarker(SelectedMarker);
                 SelectedMarker = "";
             }
             catch ( Exception ex)
@@ -193,14 +191,12 @@ namespace NavMarkers
         {
             SelectedGps = (int)selectedItems[0].UserData;
             MyLog.Default.WriteLineAndConsole($"Selected GPS from list {SelectedGps}");
-            UpdateControls();
         }
 
         private static void NavMarkersList_Selected(IMyTerminalBlock block, List<MyTerminalControlListBoxItem> selectedItems)
         {
             SelectedMarker = (string)selectedItems[0].UserData;
             MyLog.Default.WriteLineAndConsole($"Selected Marker from list {SelectedMarker}");
-            UpdateControls();
         }
 
         private static bool NavToggle_Getter(IMyTerminalBlock block)
@@ -235,6 +231,15 @@ namespace NavMarkers
                 {
                     list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(gps.Name), MyStringId.GetOrCompute(gps.Description), index));
                 }
+                else
+                {
+                    scanPattern = ".*\\(R:(\\d+km)\\)";
+                    match = Regex.Match(gps.Name, scanPattern);
+                    if (match.Success)
+                    {
+                        list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(gps.Name), MyStringId.GetOrCompute(gps.Description), index));
+                    }
+                }
                 index++;
             }
             
@@ -242,7 +247,7 @@ namespace NavMarkers
 
         private static void FillMarkerList(IMyTerminalBlock block, List<MyTerminalControlListBoxItem> list, List<MyTerminalControlListBoxItem> selected)
         {
-            foreach (NavMarker marker in NavMarkerSession.Instance.NavMarkers.markers.Dictionary.Values)
+            foreach (NavMarker marker in NavMarkerSession.Instance.NavMarkers.Markers.Dictionary.Values)
             {
                 list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(marker.Name), MyStringId.NullOrEmpty, marker.Name));
             }

@@ -7,6 +7,8 @@ using System.Text.RegularExpressions;
 using System;
 using VRageMath;
 using VRage;
+using System.Collections.Generic;
+using System.Reflection;
 
 namespace NavMarkers
 {
@@ -48,6 +50,34 @@ namespace NavMarkers
         public static bool IsAllowedSpecialOperations(MyPromoteLevel level)
         {
             return level == MyPromoteLevel.SpaceMaster || level == MyPromoteLevel.Admin || level == MyPromoteLevel.Owner;
+        }
+
+        public static bool TryParseGPSRange(string input, out double range)
+        {
+            double radius = 0;
+            string scanPattern = ".*\\(R-(\\d+)\\)";
+            Match match = Regex.Match(input, scanPattern);
+            if (match.Success)
+            {
+                radius = match.Success ? double.Parse(match.Groups[1].Value) * 1000.0 : 1000.0;
+            }
+            else
+            {
+                scanPattern = ".*\\(R:(\\d+km)\\)";
+                match = Regex.Match(input, scanPattern);
+                if (match.Success)
+                {
+                    string r = match.Groups[1].Value;
+                    if (r.Contains("km"))
+                    {
+                        r = r.Replace("km", "");
+                    }
+                    MyLog.Default.WriteLineAndConsole($"Trying to parse a range from GPS: {input}. {r}");
+                    radius = match.Success ? double.Parse(r) * 1000.0 : 1000.0;
+                }
+            }
+            range = radius;
+            return radius > 0;
         }
 
         public static bool TryParseGPS(string input, out Vector3 position, out string name)

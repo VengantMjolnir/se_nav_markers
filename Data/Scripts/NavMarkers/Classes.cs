@@ -8,10 +8,13 @@ using VRageMath;
 namespace NavMarkers
 {
     [ProtoContract]
-    public class NavMarkerDict
+    public class NavMarkerData
     {
         [ProtoMember(1)]
-        public SerializableDictionary<string, NavMarker> markers { get; set; }
+        public bool Enabled { get; set; }
+
+        [ProtoMember(2)]
+        public SerializableDictionary<string, NavMarker> Markers { get; set; }
     }
 
     [ProtoContract]
