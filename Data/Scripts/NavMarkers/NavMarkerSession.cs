@@ -1,4 +1,5 @@
 ﻿using Draygo.API;
+using NavMarkers.Data.Scripts.NavMarkers;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Interfaces.Terminal;
@@ -13,6 +14,8 @@ using VRage.Game.ModAPI;
 using VRage.Utils;
 using VRageMath;
 
+using BlendType = VRageRender.MyBillboard.BlendTypeEnum;
+
 namespace NavMarkers
 {
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
@@ -20,18 +23,19 @@ namespace NavMarkers
     {
         public const string Keyword = "/nav";
         public const string ModName = "NavMarkers";
-        public const string NavMarkerConfig = "NavMarkers.cfg";
 
         public static NavMarkerSession Instance { get; private set; }
         public static bool ControlsInit = false;
 
+        public int counter = 0;
+        public int retryCount = 0;
+        public bool ready = false;
         public string SessionName = "";
         public string NavMarkerFile = "NavMarkers";
         public bool NavMarkerState = false;
         public bool SaveQueued = false;
         public NavMarkerData NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
         public HudAPIv2 HudAPI;
-        
 
         private bool shouldLog = false;
 
@@ -39,7 +43,6 @@ namespace NavMarkers
         {
             if (Tools.IsDedicatedServer)
             {
-                MyAPIGateway.Utilities.ShowMessage("NavMarker", "Dedicated Server, not initializing");
                 return;
             }
             MyAPIGateway.Utilities.MessageEnteredSender += OnMessageEntered;
@@ -52,7 +55,6 @@ namespace NavMarkers
             SessionName = string.Concat(Session.Name.Split(Path.GetInvalidFileNameChars()));
             if (Tools.IsDedicatedServer)
             {
-                MyAPIGateway.Utilities.ShowMessage("NavMarker", "Dedicated Server, not initializing");
                 return;
             }
 
@@ -65,7 +67,10 @@ namespace NavMarkers
 
         private void LoadConfig()
         {
-
+            NavMarkerConfig.InitConfig();
+            HudAPI = new HudAPIv2(NavMarkerConfig.Instance.InitMenu);
+            if (HudAPI == null)
+                MyAPIGateway.Utilities.ShowMessage("NavMarker", "TextHudAPI failed to register");
         }
 
 
@@ -74,6 +79,7 @@ namespace NavMarkers
             if (Tools.IsDedicatedServer == false)
             {
                 SaveMarkers(true);
+                NavMarkerConfig.Save(NavMarkerConfig.Instance);
             }
         }
 
@@ -82,6 +88,7 @@ namespace NavMarkers
             if (Tools.IsDedicatedServer == false)
             {
                 SaveMarkers(true);
+                NavMarkerConfig.Save(NavMarkerConfig.Instance);
             }
         }
 
@@ -129,7 +136,10 @@ namespace NavMarkers
             {
                 Tools.Log($"{ModName}: Failed to load marker data {ex}");
                 MyAPIGateway.Utilities.ShowMessage($"{ModName}", $"Error loading saved info");
+                NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
+                NavMarkerState = false;
             }
+            ready = true;
         }
 
         private void OnMessageEntered(ulong sender, string messageText, ref bool sendToOthers)
@@ -172,12 +182,44 @@ namespace NavMarkers
             {
                 return;
             }
-            
+            if (retryCount > 10)
+            {
+                // Give up, we dead.
+                return;
+            }
+
+            if (!ready)
+            {
+                counter++;
+                if (counter > 100)
+                {
+                    counter = 0;
+                    retryCount++;
+                }
+            }
+
+            if (NavMarkers == null || NavMarkers.Markers == null || NavMarkers.Markers.Dictionary == null)
+            {
+                NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
+                NavMarkerState = false;
+            }
+
+            IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
+            if (player == null)
+            {
+                Tools.Log($"{ModName}: Local player is null despite this not being a dedicated server. Will try again to see if this happens during loading. Has tried {retryCount} times.");
+                ready = false;
+                counter = 0;
+                return;
+            }
+
             if (NavMarkerState)
             {
+                NavMarkerConfig config = NavMarkerConfig.Instance;
                 foreach (NavMarker marker in NavMarkers.Markers.Dictionary.Values)
                 {
-                    IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
+                    if (marker == null)
+                        continue; // Huh? Nothing in the lifetime should produce this, but without line numbers for the null reference I'm being extra careful on this one
                     double distance = Vector3D.Distance(player.GetPosition(), marker.Position);
                     double distanceFromEdge = Math.Abs(distance - marker.Radius);
                     double sizeMultiplier = marker.Radius / 100000.0;
@@ -185,20 +227,24 @@ namespace NavMarkers
                     Color color = marker.Color;
                     MatrixD matrix = MatrixD.Identity;
                     matrix.Translation = marker.Position;
-                    color.A = (byte)60;
+                    color.A = (byte)config.alphaValue;
                     float radius = (float)marker.Radius / 1000.0f;
 
                     int wireSegments = Math.Max(2, (int)(marker.Radius * 3 / distanceFromEdge)) * 12;
+                    // Render 'mode' is solid, but can be changed by config
                     MySimpleObjectRasterizer rasterMode = MySimpleObjectRasterizer.SolidAndWireframe;
-                    VRageRender.MyBillboard.BlendTypeEnum blendType = VRageRender.MyBillboard.BlendTypeEnum.Standard;
+                    BlendType blendType = BlendType.Standard;
+
                     if (distance < marker.Radius)
                     {
-                        distanceFromEdge = Math.Abs(marker.Radius - distance);
+                        // If inside the sphere then render mode changes to wireframe
                         rasterMode = MySimpleObjectRasterizer.Wireframe;
+                        blendType = BlendType.AdditiveBottom;
+                        distanceFromEdge = Math.Abs(marker.Radius - distance);
                         wireSegments = radius > 100 ? 36 : 24;
-                        blendType = VRageRender.MyBillboard.BlendTypeEnum.AdditiveBottom;
                     }
 
+                    // Calculate wireframe, increasing it with distance to offset aliasing
                     float wireframeWidth = (float)((distanceFromEdge / marker.Radius) * 250f * sizeMultiplier);
                     wireSegments = Math.Min(36, wireSegments);
                     wireframeWidth = Math.Max(radius, Math.Min(150.0f * (float)sizeMultiplier, wireframeWidth));
@@ -208,9 +254,14 @@ namespace NavMarkers
                         MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"segments = {wireSegments}, width= {wireframeWidth}, distanceFromEdge= {distanceFromEdge}, sizeMultiplier= {sizeMultiplier}");
                     }
 
-                    rasterMode = MySimpleObjectRasterizer.Wireframe;
-                    blendType = VRageRender.MyBillboard.BlendTypeEnum.AdditiveBottom;
-                    //ref matrix, Radius.Value, ref color, MySimpleObjectRasterizer.Solid, 20, null, MyStringId.GetOrCompute("KothTransparency"), 0.12f, -1, null);
+                    // Set to wireframe based on config
+                    if (config.enableSolidRender == false)
+                    {
+                        rasterMode = MySimpleObjectRasterizer.Wireframe;
+                        // Allow overriding of blend mode based on config
+                        blendType = config.renderAfterPostProcess ? BlendType.PostPP : BlendType.AdditiveBottom;
+                    }
+
                     MySimpleObjectDraw.DrawTransparentSphere(
                         ref matrix,
                         marker.Radius,
@@ -219,11 +270,11 @@ namespace NavMarkers
                         wireSegments,
                         MyStringId.GetOrCompute("NavMarkerTransparency"),
                         MyStringId.GetOrCompute("NavMarkerLines"),
-                        wireframeWidth,
+                        wireframeWidth * config.wireframeWidth,
                         -1,
                         null,
                         blendType,
-                        0.5f
+                        config.bloomIntensity
                     );
                 }
             }
@@ -233,7 +284,14 @@ namespace NavMarkers
                 SaveQueued = false;
                 SaveMarkers(true);
             }
+        }
 
+        public override void Draw()
+        {
+            if (Tools.IsClient == false || HudAPI == null || MyAPIGateway.Session.Config.HudState == 0)
+            {
+                return;
+            }
         }
 
         public void AddNavMarker(string name, Vector3D coords, double radius, Color color)
@@ -262,6 +320,7 @@ namespace NavMarkers
             NavMarkerSession.Instance.NavMarkers.Markers.Dictionary.Remove(name);
             SaveQueued = true;
         }
+
         public void TryIntersectMarkers()
         {
             IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
@@ -289,7 +348,7 @@ namespace NavMarkers
             if (closestMarker != null)
             {
                 string name = $"Intercept ({closestMarker.Name})";
-                position += playerLookRay.Direction * tMin;
+                position += playerLookRay.Direction * distance;
                 IMyGps gps = MyAPIGateway.Session.GPS.Create(name, $"Intercept point of view direction with closest Nav Marker: {closestMarker.Name}", position, true, false);
                 gps.GPSColor = closestMarker.Color;
                 MyAPIGateway.Session.GPS.AddGps(player.IdentityId, gps);
