@@ -152,6 +152,7 @@ namespace NavMarkers
             if (block is IMyShipController)
             {
                 actions.Add(TerminalControls.NavToggleAction);
+                actions.Add(TerminalControls.NavIntersectMarkerAction);
                 actions.Add(TerminalControls.NavToggleCloseOnlyAction);
                 actions.Add(TerminalControls.NavTogglePartialDisplayAction);
             }
@@ -412,6 +413,39 @@ namespace NavMarkers
                 EndX = end.X;
                 EndY = end.Y;
                 EndZ = end.Z;
+            }
+        }
+        public void TryIntersectMarkers()
+        {
+            IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
+            Vector3D position = player.GetPosition();
+            RayD playerLookRay = new RayD(position, MyAPIGateway.Session.Camera.WorldMatrix.Forward);
+            BoundingSphereD markerSphere = new BoundingSphereD();
+            double tMin = 0.0;
+            double tMax = 0.0;
+            double distance = double.MaxValue;
+            NavMarker closestMarker = null;
+            foreach (NavMarker marker in NavMarkers.Markers.Dictionary.Values)
+            {
+                markerSphere.Center = marker.Position;
+                markerSphere.Radius = marker.Radius;
+                if (markerSphere.IntersectRaySphere(playerLookRay, out tMin, out tMax))
+                {
+                    if (tMin < distance)
+                    {
+                        closestMarker = marker;
+                        distance = tMin;
+                    }
+                }
+            }
+
+            if (closestMarker != null)
+            {
+                string name = $"Intercept ({closestMarker.Name})";
+                position += playerLookRay.Direction * tMin;
+                IMyGps gps = MyAPIGateway.Session.GPS.Create(name, $"Intercept point of view direction with closest Nav Marker: {closestMarker.Name}", position, true, false);
+                gps.GPSColor = closestMarker.Color;
+                MyAPIGateway.Session.GPS.AddGps(player.IdentityId, gps);
             }
         }
     }
