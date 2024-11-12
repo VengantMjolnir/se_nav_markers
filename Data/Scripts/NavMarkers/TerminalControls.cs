@@ -10,6 +10,7 @@ using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Utils;
+using VRageMath;
 
 namespace NavMarkers
 {
@@ -17,8 +18,11 @@ namespace NavMarkers
     {
         private static bool Done = false;
 
-        public static IMyTerminalControlOnOffSwitch NavToggleButton;
+        // Actions
         public static IMyTerminalAction NavToggleAction;
+        public static IMyTerminalAction NavIntersectMarkerAction;
+        // Controls
+        public static IMyTerminalControlOnOffSwitch NavToggleButton;
         public static IMyTerminalControlListbox NavListbox;
         public static IMyTerminalControlButton NavAddButton;
         public static IMyTerminalControlListbox NavActiveMarkerListbox;
@@ -69,6 +73,20 @@ namespace NavMarkers
                     MyToolbarType.Seat
                 };
                 NavToggleAction.Action = NavAction_Toggle;
+            }
+            {
+                NavIntersectMarkerAction = MyAPIGateway.TerminalControls.CreateAction<IMyShipController>("NavMarkers_IntersectMarker");
+                NavIntersectMarkerAction.Enabled = IsControlVisible;
+                NavIntersectMarkerAction.Name = new StringBuilder("Create GPS at Intersect Point");
+                NavIntersectMarkerAction.Icon = @"Textures\GUI\Icons\Actions\SendSignal.dds";
+                NavIntersectMarkerAction.ValidForGroups = false;
+                NavIntersectMarkerAction.InvalidToolbarTypes = new List<MyToolbarType>
+                {
+                    MyToolbarType.Character,
+                    MyToolbarType.ButtonPanel,
+                    MyToolbarType.Seat
+                };
+                NavIntersectMarkerAction.Action = NavAction_IntersectMarker;
             }
         }
 
@@ -199,6 +217,10 @@ namespace NavMarkers
             MyLog.Default.WriteLineAndConsole($"Selected Marker from list {SelectedMarker}");
         }
 
+        private static void UpdateNavMarkerState(IMyTerminalBlock block, bool activated)
+        {
+            NavMarkerSession.Instance.NavMarkerState = activated;
+        }
         private static bool NavToggle_Getter(IMyTerminalBlock block)
         {
             return NavMarkerSession.Instance.NavMarkerState;
@@ -208,16 +230,19 @@ namespace NavMarkers
             UpdateNavMarkerState(block, activated);
         }
 
+        #region Actions
         private static void NavAction_Toggle(IMyTerminalBlock block)
         {
             UpdateNavMarkerState(block, !NavMarkerSession.Instance.NavMarkerState);
         }
 
-        private static void UpdateNavMarkerState(IMyTerminalBlock block, bool activated)
+        private static void NavAction_IntersectMarker(IMyTerminalBlock block)
         {
-            NavMarkerSession.Instance.NavMarkerState = activated;
+            NavMarkerSession.Instance.TryIntersectMarkers();
         }
+        #endregion
 
+        #region Helpers
         private static void FillGPSList(IMyTerminalBlock block, List<MyTerminalControlListBoxItem> list, List<MyTerminalControlListBoxItem> selected)
         {
             List<IMyGps> gpsList = MyAPIGateway.Session.GPS.GetGpsList(MyAPIGateway.Session.LocalHumanPlayer.IdentityId);
@@ -225,20 +250,13 @@ namespace NavMarkers
             int index = 0;
 			foreach (IMyGps gps in gpsList)
             {
+                double radius;
+                bool success = Tools.TryParseGPSRange(gps.Name, out radius);
                 string scanPattern = ".*\\(R-(\\d+)\\)";
                 Match match = Regex.Match(gps.Name, scanPattern);
-                if (match.Success)
+                if (success)
                 {
                     list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(gps.Name), MyStringId.GetOrCompute(gps.Description), index));
-                }
-                else
-                {
-                    scanPattern = ".*\\(R:(\\d+km)\\)";
-                    match = Regex.Match(gps.Name, scanPattern);
-                    if (match.Success)
-                    {
-                        list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(gps.Name), MyStringId.GetOrCompute(gps.Description), index));
-                    }
                 }
                 index++;
             }
@@ -252,5 +270,6 @@ namespace NavMarkers
                 list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(marker.Name), MyStringId.NullOrEmpty, marker.Name));
             }
         }
+        #endregion
     }
 }
