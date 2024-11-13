@@ -6,7 +6,9 @@ using Sandbox.ModAPI.Interfaces.Terminal;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.Entity;
@@ -25,11 +27,7 @@ namespace NavMarkers
         public const string ModName = "NavMarkers";
 
         public static NavMarkerSession Instance { get; private set; }
-        public static bool ControlsInit = false;
 
-        public int counter = 0;
-        public int retryCount = 0;
-        public bool ready = false;
         public string SessionName = "";
         public string NavMarkerFile = "NavMarkers";
         public bool NavMarkerState = false;
@@ -37,8 +35,9 @@ namespace NavMarkers
         public NavMarkerData NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
         public HudAPIv2 HudAPI;
 
-        private bool shouldLog = false;
+        private Dictionary<string, ChatCommand> ChatCommands;
 
+        #region Session Overrides
         public override void LoadData()
         {
             if (Tools.IsDedicatedServer)
@@ -63,14 +62,14 @@ namespace NavMarkers
             
             MyAPIGateway.TerminalControls.CustomControlGetter += CustomControlGetter;
             MyAPIGateway.TerminalControls.CustomActionGetter += CustomActionGetter;
-        }
 
-        private void LoadConfig()
-        {
-            NavMarkerConfig.InitConfig();
-            HudAPI = new HudAPIv2(NavMarkerConfig.Instance.InitMenu);
-            if (HudAPI == null)
-                MyAPIGateway.Utilities.ShowMessage("NavMarker", "TextHudAPI failed to register");
+            ChatCommands = new Dictionary<string, ChatCommand>()
+            {
+                { "help", new ChatCommand() { command = "help", callback = ChatCommand_Help } },
+                { "add", new ChatCommand() { command = "add", callback = ChatCommand_Add } },
+                { "remove", new ChatCommand() { command = "remove", callback = ChatCommand_Remove } },
+                { "list", new ChatCommand() { command = "list", callback = ChatCommand_List } }
+            };
         }
 
 
@@ -90,112 +89,28 @@ namespace NavMarkers
                 SaveMarkers(true);
                 NavMarkerConfig.Save(NavMarkerConfig.Instance);
             }
-        }
-
-        private void SaveMarkers(bool writeFile)
-        {
-            try
-            {
-                NavMarkers.Enabled = NavMarkerState;
-                if (writeFile)
-                {
-                    TextWriter writer;
-                    writer = MyAPIGateway.Utilities.WriteFileInLocalStorage(NavMarkerFile, typeof(NavMarkerData));
-                    writer.Write(MyAPIGateway.Utilities.SerializeToXML(NavMarkers));
-                    writer.Close();
-                    Tools.Log($"{ModName} Saved nav markers: {NavMarkerFile}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Tools.Log($"{ModName}: Failed to save marker data");
-
-            }
-        }
-
-        private void LoadMarkers()
-        {
-            NavMarkerFile = "NavMarkers" + SessionName + ".dat";
-            try
-            {
-                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(NavMarkerFile, typeof (NavMarkerData)))
-                {
-                    TextReader reader = MyAPIGateway.Utilities.ReadFileInLocalStorage(NavMarkerFile, typeof( NavMarkerData));
-                    var data = reader.ReadToEnd();
-                    reader.Close();
-                    NavMarkers = MyAPIGateway.Utilities.SerializeFromXML<NavMarkerData>(data);
-                    NavMarkerState = NavMarkers.Enabled;
-                    Tools.Log($"{ModName} Loaded nav markers: {NavMarkerFile}");
-                }
-                else
-                {
-                    Tools.Log($"{ModName}: No existing nav marker data. Will create new file on first save named: {NavMarkerFile}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Tools.Log($"{ModName}: Failed to load marker data {ex}");
-                MyAPIGateway.Utilities.ShowMessage($"{ModName}", $"Error loading saved info");
-                NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
-                NavMarkerState = false;
-            }
-            ready = true;
-        }
-
-        private void OnMessageEntered(ulong sender, string messageText, ref bool sendToOthers)
-        {
-            var message = messageText.ToLower();
-            if (message.Contains(Keyword)) 
-            { 
-                shouldLog = true;
-            }
-        }
-
-        private void CustomActionGetter(IMyTerminalBlock block, List<IMyTerminalAction> actions)
-        {
-            TerminalControls.Create();
-            if (block is IMyShipController)
-            {
-                actions.Add(TerminalControls.NavToggleAction);
-                actions.Add(TerminalControls.NavIntersectMarkerAction);
-            }
-        }
-
-        private void CustomControlGetter(IMyTerminalBlock block, List<IMyTerminalControl> controls)
-        {
-            TerminalControls.Create();
-            if (block is IMyCockpit || block is IMyShipController)
-            {
-                controls.AddOrInsert(TerminalControls.Separator<IMyShipController>(), 5);
-                controls.AddOrInsert(TerminalControls.NavToggleButton, 6);
-                controls.AddOrInsert(TerminalControls.NavListbox, 7);
-                controls.AddOrInsert(TerminalControls.NavAddButton, 8);
-                controls.AddOrInsert(TerminalControls.NavActiveMarkerListbox, 9);
-                controls.AddOrInsert(TerminalControls.NavRemoveButton, 10);
-                controls.AddOrInsert(TerminalControls.Separator<IMyShipController>(), 11);
-            }
+            MyAPIGateway.TerminalControls.CustomControlGetter -= CustomControlGetter;
+            MyAPIGateway.TerminalControls.CustomActionGetter -= CustomActionGetter;
+            MyAPIGateway.Utilities.MessageEnteredSender -= OnMessageEntered;
         }
 
         public override void UpdateBeforeSimulation()
         {
+            if (SaveQueued)
+            {
+                SaveQueued = false;
+                SaveMarkers(true);
+            }
+
+            // Sanity checks
             if (Tools.IsDedicatedServer)
             {
                 return;
             }
-            if (retryCount > 10)
+            IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
+            if (player == null)
             {
-                // Give up, we dead.
                 return;
-            }
-
-            if (!ready)
-            {
-                counter++;
-                if (counter > 100)
-                {
-                    counter = 0;
-                    retryCount++;
-                }
             }
 
             if (NavMarkers == null || NavMarkers.Markers == null || NavMarkers.Markers.Dictionary == null)
@@ -204,15 +119,7 @@ namespace NavMarkers
                 NavMarkerState = false;
             }
 
-            IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
-            if (player == null)
-            {
-                Tools.Log($"{ModName}: Local player is null despite this not being a dedicated server. Will try again to see if this happens during loading. Has tried {retryCount} times.");
-                ready = false;
-                counter = 0;
-                return;
-            }
-
+            // Drawing logic
             if (NavMarkerState)
             {
                 NavMarkerConfig config = NavMarkerConfig.Instance;
@@ -248,11 +155,6 @@ namespace NavMarkers
                     float wireframeWidth = (float)((distanceFromEdge / marker.Radius) * 250f * sizeMultiplier);
                     wireSegments = Math.Min(36, wireSegments);
                     wireframeWidth = Math.Max(radius, Math.Min(150.0f * (float)sizeMultiplier, wireframeWidth));
-                    if (shouldLog)
-                    {
-                        shouldLog = false;
-                        MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"segments = {wireSegments}, width= {wireframeWidth}, distanceFromEdge= {distanceFromEdge}, sizeMultiplier= {sizeMultiplier}");
-                    }
 
                     // Set to wireframe based on config
                     if (config.enableSolidRender == false)
@@ -278,12 +180,6 @@ namespace NavMarkers
                     );
                 }
             }
-
-            if (SaveQueued)
-            {
-                SaveQueued = false;
-                SaveMarkers(true);
-            }
         }
 
         public override void Draw()
@@ -294,12 +190,199 @@ namespace NavMarkers
             }
         }
 
-        public void AddNavMarker(string name, Vector3D coords, double radius, Color color)
+        #endregion
+
+        private void LoadConfig()
         {
-            if (NavMarkers.Markers.Dictionary.ContainsKey(name))
+            NavMarkerConfig.InitConfig();
+            HudAPI = new HudAPIv2(NavMarkerConfig.Instance.InitMenu);
+            if (HudAPI == null)
+                MyAPIGateway.Utilities.ShowMessage("NavMarker", "TextHudAPI failed to register");
+        }
+
+        private void LoadMarkers()
+        {
+            NavMarkerFile = "NavMarkers" + SessionName + ".dat";
+            try
+            {
+                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(NavMarkerFile, typeof (NavMarkerData)))
+                {
+                    TextReader reader = MyAPIGateway.Utilities.ReadFileInLocalStorage(NavMarkerFile, typeof( NavMarkerData));
+                    var data = reader.ReadToEnd();
+                    reader.Close();
+                    NavMarkers = MyAPIGateway.Utilities.SerializeFromXML<NavMarkerData>(data);
+                    NavMarkerState = NavMarkers.Enabled;
+                    Tools.Log($"{ModName} Loaded nav markers: {NavMarkerFile}");
+                }
+                else
+                {
+                    Tools.Log($"{ModName}: No existing nav marker data. Will create new file on first save named: {NavMarkerFile}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Tools.Log($"{ModName}: Failed to load marker data {ex}");
+                MyAPIGateway.Utilities.ShowMessage($"{ModName}", $"Error loading saved info");
+                NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
+                NavMarkerState = false;
+            }
+        }
+
+        private void SaveMarkers(bool writeFile)
+        {
+            try
+            {
+                NavMarkers.Enabled = NavMarkerState;
+                if (writeFile)
+                {
+                    TextWriter writer;
+                    writer = MyAPIGateway.Utilities.WriteFileInLocalStorage(NavMarkerFile, typeof(NavMarkerData));
+                    writer.Write(MyAPIGateway.Utilities.SerializeToXML(NavMarkers));
+                    writer.Close();
+                    Tools.Log($"{ModName}: Saved nav markers: {NavMarkerFile}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Tools.Log($"{ModName}: Failed to save marker data");
+
+            }
+        }
+
+        private void OnMessageEntered(ulong sender, string messageText, ref bool sendToOthers)
+        {
+            var message = messageText.ToLower();
+            if (message.StartsWith(Keyword) == false)
             {
                 return;
             }
+            
+            message = messageText.Substring(Keyword.Length).Trim(' ');
+
+            string scanPattern = "[^\\s\"']+|\"([^\"]*)\"|'([^']*)'";
+            MatchCollection matches = Regex.Matches(message, scanPattern);
+            sendToOthers = false;
+            StringBuilder sb = new StringBuilder();
+            int index = 0;
+            string[] args = new string[matches.Count];
+            foreach (var match in matches)
+            {
+                args[index++] = match.ToString();
+            }
+            //MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Args: {string.Join(",",args)}");
+            if (ChatCommands.ContainsKey(args[0].ToLower()))
+            {
+                ChatCommands[args[0]].callback(args);
+            }
+        }
+
+        #region Chat Commands
+        private void ChatCommand_Help(string[] args)
+        {
+            MyAPIGateway.Utilities.ShowMissionScreen("Nav Markers Help", "Test", "Testing", "This is the description");
+        }
+
+        private void ChatCommand_Add(string[] args)
+        {
+            if (args.Length < 3)
+            {
+                MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"'/nav add' requires at least two arguments: <range> and <gps_name>");
+                return;
+            }
+            string name = args[2];
+            double radius;
+            if (!double.TryParse(args[1], out radius))
+            {
+                Tools.Log($"{ModName}: Failed to parse double from '{args[1]}', trying args in opposite order.");
+                name = args[1];
+                if (!double.TryParse(args[2], out radius))
+                {
+                    Tools.Log($"{ModName}: Failed to parse double from '{args[2]}' as well. No marker added");
+                    return;
+                }
+            }
+            name = name.Trim('"');
+            List<IMyGps> gpsList = MyAPIGateway.Session.GPS.GetGpsList(MyAPIGateway.Session.LocalHumanPlayer.IdentityId);
+            foreach (IMyGps gps in gpsList)
+            {
+                if (gps.Name.CompareTo(name) == 0)
+                {
+                    AddNavMarker(name, gps.Coords, radius * 1000.0, gps.GPSColor);
+                    return;
+                }
+            }
+
+            MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Add Marker failed, no GPS with name exists: Name = {name}");
+        }
+
+        private void ChatCommand_Remove(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"'/nav remove' requires at least one argument: <name>");
+                return;
+            }
+            string name = args[1].Trim('"');
+            var markers = NavMarkers.Markers.Dictionary.Values;
+            foreach (NavMarker marker in markers)
+            {
+                if (marker.Name.CompareTo(name) == 0)
+                {
+                    RemoveNavMarker(name);
+                    return;
+                }
+            }
+            MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Remove Marker failed, no marker with name exists: Name = {name}.");
+        }
+
+        private void ChatCommand_List(string[] args)
+        {
+            StringBuilder sb = new StringBuilder();
+            var markers = NavMarkers.Markers.Dictionary.Values;
+            sb.AppendLine("Active Nav Markers:");
+            int index = 1;
+            foreach (NavMarker marker in markers)
+            {
+                sb.AppendLine($"{index}. {marker.Name}");
+            }
+            MyAPIGateway.Utilities.ShowMessage("NavMarkers", sb.ToString());
+        }
+        #endregion
+
+        private void CustomActionGetter(IMyTerminalBlock block, List<IMyTerminalAction> actions)
+        {
+            TerminalControls.Create();
+            if (block is IMyShipController)
+            {
+                actions.Add(TerminalControls.NavToggleAction);
+                actions.Add(TerminalControls.NavIntersectMarkerAction);
+            }
+        }
+
+        private void CustomControlGetter(IMyTerminalBlock block, List<IMyTerminalControl> controls)
+        {
+            TerminalControls.Create();
+            if (block is IMyCockpit || block is IMyShipController)
+            {
+                controls.AddOrInsert(TerminalControls.Separator<IMyShipController>(), 5);
+                controls.AddOrInsert(TerminalControls.NavToggleButton, 6);
+                controls.AddOrInsert(TerminalControls.NavListbox, 7);
+                controls.AddOrInsert(TerminalControls.NavAddButton, 8);
+                controls.AddOrInsert(TerminalControls.NavActiveMarkerListbox, 9);
+                controls.AddOrInsert(TerminalControls.NavRemoveButton, 10);
+                controls.AddOrInsert(TerminalControls.Separator<IMyShipController>(), 11);
+            }
+        }
+
+        #region Public interface
+        public void AddNavMarker(string name, Vector3D coords, double radius, Color color, bool forceAdd = false)
+        {
+            if (NavMarkers.Markers.Dictionary.ContainsKey(name))
+            {
+                MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Add Marker failed, Marker already exists: Name = {name}");
+                return;
+            }
+            MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Added a new marker: Radius = {radius}, Name = {name}");
 
             NavMarker marker = new NavMarker();
             marker.Name = name;
@@ -317,6 +400,7 @@ namespace NavMarkers
             {
                 return;
             }
+            MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Removed nav marker: Name = {name}");
             NavMarkerSession.Instance.NavMarkers.Markers.Dictionary.Remove(name);
             SaveQueued = true;
         }
@@ -354,5 +438,6 @@ namespace NavMarkers
                 MyAPIGateway.Session.GPS.AddGps(player.IdentityId, gps);
             }
         }
+        #endregion
     }
 }

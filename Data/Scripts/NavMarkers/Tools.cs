@@ -55,16 +55,10 @@ namespace NavMarkers
         public static bool TryParseGPSRange(string input, out double range)
         {
             double radius = 0;
-            string scanPattern = ".*\\(R-(\\d+)\\)";
-            Match match = Regex.Match(input, scanPattern);
-            if (match.Success)
+            string[] scanPatterns = new string[] { ".*\\(R-(\\d+\\.*\\d*)[km]*\\)", ".*\\(R:(\\d+\\.*\\d*)[km]*\\)", ".*\\[R-(\\d+\\.*\\d*)[km]*\\]", ".*\\[R:(\\d+\\.*\\d*)[km]*\\]" };
+            foreach (var scanPattern in scanPatterns)// string scanPattern = ".*\\(R-(\\d+)\\)";
             {
-                radius = match.Success ? double.Parse(match.Groups[1].Value) * 1000.0 : 1000.0;
-            }
-            else
-            {
-                scanPattern = ".*\\(R:(\\d+km)\\)";
-                match = Regex.Match(input, scanPattern);
+                Match match = Regex.Match(input, scanPattern);
                 if (match.Success)
                 {
                     string r = match.Groups[1].Value;
@@ -74,8 +68,10 @@ namespace NavMarkers
                     }
                     MyLog.Default.WriteLineAndConsole($"Trying to parse a range from GPS: {input}. {r}");
                     radius = match.Success ? double.Parse(r) * 1000.0 : 1000.0;
+                    break;
                 }
             }
+            
             range = radius;
             return radius > 0;
         }
