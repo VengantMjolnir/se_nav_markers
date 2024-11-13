@@ -20,23 +20,29 @@ namespace NavMarkers.Data.Scripts.NavMarkers
         #region Config Settings
         public static readonly NavMarkerConfig Default = new NavMarkerConfig()
         {
-            enableSolidRender = false,
-            renderAfterPostProcess = false,
-            alphaValue = 60,
-            bloomIntensity = 0.5f,
-            wireframeWidth = 1.0f
+            EnableSolidRender = false,
+            RenderAfterPostProcess = false,
+            AlphaValue = 60,
+            BloomIntensity = 0.5f,
+            WireframeWidth = 1.0f,
+            CloseOnlyDistance = 100000,
+            PartialLineDistance = 175000
         };
 
         [ProtoMember(1)]
-        public bool enableSolidRender { get; set; } = false;
+        public bool EnableSolidRender { get; set; } = false;
         [ProtoMember(2)]
-        public bool renderAfterPostProcess { get; set; } = false;
+        public bool RenderAfterPostProcess { get; set; } = false;
         [ProtoMember(3)]
-        public int alphaValue { get; set; } = 60;
+        public int AlphaValue { get; set; } = 60;
         [ProtoMember(4)]
-        public float bloomIntensity { get; set; } = 0.5f;
+        public float BloomIntensity { get; set; } = 0.5f;
         [ProtoMember(5)]
-        public float wireframeWidth { get; set; } = 1.0f;
+        public float WireframeWidth { get; set; } = 1.0f;
+        [ProtoMember(6)]
+        public int CloseOnlyDistance { get; set; } = 100000;
+        [ProtoMember(7)]
+        public int PartialLineDistance { get; set; } = 175000;
         #endregion
 
         #region HudAPI fields
@@ -110,32 +116,32 @@ namespace NavMarkers.Data.Scripts.NavMarkers
         public void InitMenu()
         {
             SettingsMenu = new HudAPIv2.MenuRootCategory("Nav Markers", HudAPIv2.MenuRootCategory.MenuFlag.PlayerMenu, "Nav Markers Settings");
-            EnableSolidRenderItem = new HudAPIv2.MenuItem($"Enable Solid Render Mode: {enableSolidRender}", SettingsMenu, ShowEnableSolidRender);
-            RenderAfterPostProcessItem = new HudAPIv2.MenuItem($"Wireframe Blend Mode: {(renderAfterPostProcess ? "After PostProcess" : "Alpha")}", SettingsMenu, ShowRenderMode);
-            AlphaValueSlider = new HudAPIv2.MenuSliderInput($"Alpha Value: {alphaValue}", SettingsMenu, (float)(alphaValue / 255f), "Adjust Slider to modify sphere transparency", ChangeAlphaValue, GetAlphaValue);
-            BloomIntensitySlider = new HudAPIv2.MenuSliderInput($"Bloom Intensity: {bloomIntensity}", SettingsMenu, bloomIntensity, "Adjust Slider to modify wireframe line intensity", ChangeBloomIntensity, GetBloomIntensity);
-            WireframeWidthSlider = new HudAPIv2.MenuSliderInput($"Wireframe Width: {wireframeWidth}", SettingsMenu, wireframeWidth - 0.5f, "Adjust Slider to modify wireframe width", ChangeWireframeWidth, GetWireframeWidth);
+            EnableSolidRenderItem = new HudAPIv2.MenuItem($"Enable Solid Render Mode: {EnableSolidRender}", SettingsMenu, ShowEnableSolidRender);
+            RenderAfterPostProcessItem = new HudAPIv2.MenuItem($"Wireframe Blend Mode: {(RenderAfterPostProcess ? "After PostProcess" : "Alpha")}", SettingsMenu, ShowRenderMode);
+            AlphaValueSlider = new HudAPIv2.MenuSliderInput($"Alpha Value: {AlphaValue}", SettingsMenu, (float)(AlphaValue / 255f), "Adjust Slider to modify sphere transparency", ChangeAlphaValue, GetAlphaValue);
+            BloomIntensitySlider = new HudAPIv2.MenuSliderInput($"Bloom Intensity: {BloomIntensity}", SettingsMenu, BloomIntensity, "Adjust Slider to modify wireframe line intensity", ChangeBloomIntensity, GetBloomIntensity);
+            WireframeWidthSlider = new HudAPIv2.MenuSliderInput($"Wireframe Width: {WireframeWidth}", SettingsMenu, WireframeWidth - 0.5f, "Adjust Slider to modify wireframe width", ChangeWireframeWidth, GetWireframeWidth);
         }
 
         private void ShowEnableSolidRender()
         {
-            enableSolidRender = !enableSolidRender;
-            EnableSolidRenderItem.Text = $"Enable Solid Render Mode: {enableSolidRender}";
+            EnableSolidRender = !EnableSolidRender;
+            EnableSolidRenderItem.Text = $"Enable Solid Render Mode: {EnableSolidRender}";
             Save(this);
         }
 
         private void ShowRenderMode()
         {
-            renderAfterPostProcess = !renderAfterPostProcess;
-            RenderAfterPostProcessItem.Text = $"Wireframe Blend Mode: {(renderAfterPostProcess ? "After PostProcess" : "Alpha")}";
+            RenderAfterPostProcess = !RenderAfterPostProcess;
+            RenderAfterPostProcessItem.Text = $"Wireframe Blend Mode: {(RenderAfterPostProcess ? "After PostProcess" : "Alpha")}";
             Save(this);
         }
 
         private void ChangeAlphaValue(float input)
         {
-            alphaValue = (int)(input * 255);
-            AlphaValueSlider.Text = $"Alpha Value: {alphaValue}";
-            AlphaValueSlider.InitialPercent = (float)(alphaValue / 255f);
+            AlphaValue = (int)(input * 255);
+            AlphaValueSlider.Text = $"Alpha Value: {AlphaValue}";
+            AlphaValueSlider.InitialPercent = (float)(AlphaValue / 255f);
             Save(this);
         }
 
@@ -146,9 +152,9 @@ namespace NavMarkers.Data.Scripts.NavMarkers
 
         private void ChangeBloomIntensity(float input)
         {
-            bloomIntensity = input;
-            BloomIntensitySlider.Text = $"Bloom Intensity: {bloomIntensity}";
-            BloomIntensitySlider.InitialPercent = bloomIntensity;
+            BloomIntensity = input;
+            BloomIntensitySlider.Text = $"Bloom Intensity: {BloomIntensity}";
+            BloomIntensitySlider.InitialPercent = BloomIntensity;
             Save(this);
         }
 
@@ -159,9 +165,9 @@ namespace NavMarkers.Data.Scripts.NavMarkers
 
         private void ChangeWireframeWidth(float input)
         {
-            wireframeWidth = input + 0.5f;
-            WireframeWidthSlider.Text = $"Wireframe Width: {wireframeWidth}";
-            WireframeWidthSlider.InitialPercent = wireframeWidth - 0.5f;
+            WireframeWidth = input + 0.5f;
+            WireframeWidthSlider.Text = $"Wireframe Width: {WireframeWidth}";
+            WireframeWidthSlider.InitialPercent = WireframeWidth - 0.5f;
             Save(this);
         }
         

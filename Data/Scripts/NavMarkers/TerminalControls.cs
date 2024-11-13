@@ -21,8 +21,12 @@ namespace NavMarkers
         // Actions
         public static IMyTerminalAction NavToggleAction;
         public static IMyTerminalAction NavIntersectMarkerAction;
+        public static IMyTerminalAction NavToggleCloseOnlyAction;
+        public static IMyTerminalAction NavTogglePartialDisplayAction;
         // Controls
         public static IMyTerminalControlOnOffSwitch NavToggleButton;
+        public static IMyTerminalControlOnOffSwitch NavToggleCloseOnlyButton;
+        public static IMyTerminalControlOnOffSwitch NavTogglePartialDisplayButton;
         public static IMyTerminalControlListbox NavListbox;
         public static IMyTerminalControlButton NavAddButton;
         public static IMyTerminalControlListbox NavActiveMarkerListbox;
@@ -88,6 +92,34 @@ namespace NavMarkers
                 };
                 NavIntersectMarkerAction.Action = NavAction_IntersectMarker;
             }
+            {
+                NavToggleCloseOnlyAction = MyAPIGateway.TerminalControls.CreateAction<IMyShipController>("NavMarkers_ToggleCloseOnly");
+                NavToggleCloseOnlyAction.Enabled = IsControlVisible;
+                NavToggleCloseOnlyAction.Name = new StringBuilder("Toggle Nav Markers Close Range");
+                NavToggleCloseOnlyAction.Icon = @"Textures\GUI\Icons\Actions\Reverse.dds";
+                NavToggleCloseOnlyAction.ValidForGroups = false;
+                NavToggleCloseOnlyAction.InvalidToolbarTypes = new List<MyToolbarType>
+                {
+                    MyToolbarType.Character,
+                    MyToolbarType.ButtonPanel,
+                    MyToolbarType.Seat
+                };
+                NavToggleCloseOnlyAction.Action = NavAction_ToggleCloseOnly;
+            }
+            {
+                NavTogglePartialDisplayAction = MyAPIGateway.TerminalControls.CreateAction<IMyShipController>("NavMarkers_TogglePartialDisplay");
+                NavTogglePartialDisplayAction.Enabled = IsControlVisible;
+                NavTogglePartialDisplayAction.Name = new StringBuilder("Toggle Nav Markers Display Mode");
+                NavTogglePartialDisplayAction.Icon = @"Textures\GUI\Icons\Actions\Reverse.dds";
+                NavTogglePartialDisplayAction.ValidForGroups = false;
+                NavTogglePartialDisplayAction.InvalidToolbarTypes = new List<MyToolbarType>
+                {
+                    MyToolbarType.Character,
+                    MyToolbarType.ButtonPanel,
+                    MyToolbarType.Seat
+                };
+                NavTogglePartialDisplayAction.Action = NavAction_TogglePartialDisplay;
+            }
         }
 
         private static void CreateControls()
@@ -104,7 +136,28 @@ namespace NavMarkers
                 NavToggleButton.Setter = NavToggle_Setter;
             }
             {
-
+                NavToggleCloseOnlyButton = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, IMyShipController>("NavMarkers_ToggleCloseOnlyButton");
+                NavToggleCloseOnlyButton.Title = MyStringId.GetOrCompute("Close Range Only");
+                NavToggleCloseOnlyButton.Tooltip = MyStringId.GetOrCompute("Only show if 100,000km away from a border");
+                NavToggleCloseOnlyButton.SupportsMultipleBlocks = false;
+                NavToggleCloseOnlyButton.Visible = IsControlVisible;
+                NavToggleCloseOnlyButton.OnText = MyStringId.GetOrCompute("Close");
+                NavToggleCloseOnlyButton.OffText = MyStringId.GetOrCompute("All");
+                NavToggleCloseOnlyButton.Getter = NavToggleCloseOnly_Getter;
+                NavToggleCloseOnlyButton.Setter = NavToggleCloseOnly_Setter;
+            }
+            {
+                NavTogglePartialDisplayButton = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, IMyShipController>("NavMarkers_TogglePartialDisplayButton");
+                NavTogglePartialDisplayButton.Title = MyStringId.GetOrCompute("Display Style");
+                NavTogglePartialDisplayButton.Tooltip = MyStringId.GetOrCompute("Show as full sphere around zone or only partial near player");
+                NavTogglePartialDisplayButton.SupportsMultipleBlocks = false;
+                NavTogglePartialDisplayButton.Visible = IsControlVisible;
+                NavTogglePartialDisplayButton.OnText = MyStringId.GetOrCompute("Partial");
+                NavTogglePartialDisplayButton.OffText = MyStringId.GetOrCompute("Full");
+                NavTogglePartialDisplayButton.Getter = NavTogglePartialDisplay_Getter;
+                NavTogglePartialDisplayButton.Setter = NavTogglePartialDisplay_Setter;
+            }
+            {
                 NavListbox = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlListbox, IMyShipController>("NavMarkers_List");
                 NavListbox.Enabled = IsControlVisible;
                 NavListbox.Visible = IsControlVisible;
@@ -146,7 +199,7 @@ namespace NavMarkers
         private static void UpdateControls()
         {
             List<IMyTerminalControl> controls = new List<IMyTerminalControl>();
-            
+
             MyAPIGateway.TerminalControls.GetControls<IMyShipController>(out controls);
 
             foreach (IMyTerminalControl control in controls)
@@ -174,7 +227,7 @@ namespace NavMarkers
 
                 double radius;
                 bool success = Tools.TryParseGPSRange(gps.Name, out radius);
-                
+
                 NavMarkerSession.Instance.AddNavMarker(gps.Name, gps.Coords, success ? radius : 1000.0, gps.GPSColor);
                 SelectedGps = -1;
             }
@@ -197,14 +250,14 @@ namespace NavMarkers
                 NavMarkerSession.Instance.RemoveNavMarker(SelectedMarker);
                 SelectedMarker = "";
             }
-            catch ( Exception ex)
+            catch (Exception ex)
             {
                 MyLog.Default.WriteLineAndConsole($"Error when removing marker from active list: {SelectedMarker}. {ex}");
 
             }
             UpdateControls();
         }
-        
+
         private static void NavGPSList_Selected(IMyTerminalBlock block, List<MyTerminalControlListBoxItem> selectedItems)
         {
             SelectedGps = (int)selectedItems[0].UserData;
@@ -240,6 +293,36 @@ namespace NavMarkers
         {
             NavMarkerSession.Instance.TryIntersectMarkers();
         }
+
+        private static bool NavToggleCloseOnly_Getter(IMyTerminalBlock block)
+        {
+            return NavMarkerSession.Instance.CloseOnly;
+        }
+
+        private static void NavToggleCloseOnly_Setter(IMyTerminalBlock block, bool closeOnly)
+        {
+            NavMarkerSession.Instance.CloseOnly = closeOnly;
+        }
+
+        private static void NavAction_ToggleCloseOnly(IMyTerminalBlock block)
+        {
+            NavMarkerSession.Instance.CloseOnly = !NavMarkerSession.Instance.CloseOnly;
+        }
+
+        private static bool NavTogglePartialDisplay_Getter(IMyTerminalBlock block)
+        {
+            return NavMarkerSession.Instance.PartialDisplay;
+        }
+
+        private static void NavTogglePartialDisplay_Setter(IMyTerminalBlock block, bool partialDisplay)
+        {
+            NavMarkerSession.Instance.PartialDisplay = partialDisplay;
+        }
+
+        private static void NavAction_TogglePartialDisplay(IMyTerminalBlock block)
+        {
+            NavMarkerSession.Instance.PartialDisplay = !NavMarkerSession.Instance.PartialDisplay;
+        }
         #endregion
 
         #region Helpers
@@ -248,7 +331,7 @@ namespace NavMarkers
             List<IMyGps> gpsList = MyAPIGateway.Session.GPS.GetGpsList(MyAPIGateway.Session.LocalHumanPlayer.IdentityId);
 
             int index = 0;
-			foreach (IMyGps gps in gpsList)
+            foreach (IMyGps gps in gpsList)
             {
                 double radius;
                 bool success = Tools.TryParseGPSRange(gps.Name, out radius);
@@ -260,7 +343,7 @@ namespace NavMarkers
                 }
                 index++;
             }
-            
+
         }
 
         private static void FillMarkerList(IMyTerminalBlock block, List<MyTerminalControlListBoxItem> list, List<MyTerminalControlListBoxItem> selected)

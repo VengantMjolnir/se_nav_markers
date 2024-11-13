@@ -71,7 +71,7 @@ namespace NavMarkers
                     break;
                 }
             }
-            
+
             range = radius;
             return radius > 0;
         }
