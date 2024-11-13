@@ -32,4 +32,10 @@ namespace NavMarkers
         [ProtoMember(4)]
         public Color Color { get; set; }
     }
+
+    public class ChatCommand
+    {
+        public string command;
+        public Action<string[]> callback;
+    }
 }
