@@ -137,6 +137,9 @@ namespace NavMarkers
                     double distanceFromEdge = Math.Abs(distance - marker.Radius);
                     double sizeMultiplier = marker.Radius / 100000.0;
 
+                    // Only show if within X km of the border
+                    if (CloseOnly && distanceFromEdge > _closeRange) { continue; }
+
                     Color color = marker.Color;
                     MatrixD matrix = MatrixD.Identity;
                     matrix.Translation = marker.Position;
