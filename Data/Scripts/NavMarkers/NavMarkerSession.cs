@@ -39,7 +39,6 @@ namespace NavMarkers
 
         private Dictionary<string, ChatCommand> ChatCommands;
 
-        private bool shouldLog = false;
         private double _closeRange = 100000d;
         private double _lineRange = 175000d;
         private Dictionary<NavMarker, List<Segment>> _navMarkerSegments = new Dictionary<NavMarker, List<Segment>>();
