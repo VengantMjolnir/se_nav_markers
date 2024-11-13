@@ -30,17 +30,26 @@ namespace NavMarkers
 
         public string SessionName = "";
         public string NavMarkerFile = "NavMarkers";
+
         public bool NavMarkerState = false;
-        public bool CloseOnly = false;
-        public bool PartialDisplay = false;
+        public bool ShowOnlyCloseMarkers = false;
+        public bool ShowPartialMarkers = false;
         public bool SaveQueued = false;
-        public NavMarkerData NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
+
+        public NavMarkerData NavData = new NavMarkerData() 
+        { 
+            Enabled = false, 
+            ShowOnlyCloseMarkers = false,
+            ShowPartialMarkers = false,
+            Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() 
+        };
         public HudAPIv2 HudAPI;
 
         private Dictionary<string, ChatCommand> ChatCommands;
 
         private Dictionary<NavMarker, List<Segment>> _navMarkerSegments = new Dictionary<NavMarker, List<Segment>>();
-
+        
+		#region Session Overrides
         public override void LoadData()
         {
             if (Tools.IsDedicatedServer)
@@ -62,7 +71,7 @@ namespace NavMarkers
 
             LoadConfig();
             LoadMarkers();
-
+            
             MyAPIGateway.TerminalControls.CustomControlGetter += CustomControlGetter;
             MyAPIGateway.TerminalControls.CustomActionGetter += CustomActionGetter;
 
@@ -116,9 +125,9 @@ namespace NavMarkers
                 return;
             }
 
-            if (NavMarkers == null || NavMarkers.Markers == null || NavMarkers.Markers.Dictionary == null)
+            if (NavData == null || NavData.Markers == null || NavData.Markers.Dictionary == null)
             {
-                NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
+                NavData = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
                 NavMarkerState = false;
             }
 
@@ -126,16 +135,13 @@ namespace NavMarkers
             if (NavMarkerState)
             {
                 NavMarkerConfig config = NavMarkerConfig.Instance;
-                foreach (NavMarker marker in NavMarkers.Markers.Dictionary.Values)
+                foreach (NavMarker marker in NavData.Markers.Dictionary.Values)
                 {
                     if (marker == null)
                         continue; // Huh? Nothing in the lifetime should produce this, but without line numbers for the null reference I'm being extra careful on this one
                     double distance = Vector3D.Distance(player.GetPosition(), marker.Position);
                     double distanceFromEdge = Math.Abs(distance - marker.Radius);
                     double sizeMultiplier = marker.Radius / 100000.0;
-
-                    // Only show if within X km of the border
-                    if (CloseOnly && distanceFromEdge > config.CloseOnlyDistance) { continue; }
 
                     Color color = marker.Color;
                     MatrixD matrix = MatrixD.Identity;
@@ -170,9 +176,11 @@ namespace NavMarkers
                         blendType = config.RenderAfterPostProcess ? BlendType.PostPP : BlendType.AdditiveBottom;
                     }
 
-                    if (!PartialDisplay)
+                    // Only show if within X km of the border
+
+                    bool outsideCloseDistance = (ShowOnlyCloseMarkers && distanceFromEdge > config.CloseOnlyDistance);
+                    if (!ShowPartialMarkers && !outsideCloseDistance)
                     {
-                        //ref matrix, Radius.Value, ref color, MySimpleObjectRasterizer.Solid, 20, null, MyStringId.GetOrCompute("KothTransparency"), 0.12f, -1, null);
                         MySimpleObjectDraw.DrawTransparentSphere(
                             ref matrix,
                             marker.Radius,
@@ -181,15 +189,19 @@ namespace NavMarkers
                             wireSegments,
                             MyStringId.GetOrCompute("NavMarkerTransparency"),
                             MyStringId.GetOrCompute("NavMarkerLines"),
-                            wireframeWidth,
+                            wireframeWidth * config.WireframeWidth,
                             -1,
                             null,
                             blendType,
-                            0.5f
+                            config.BloomIntensity
                         );
                     }
-                    else
+                    else if(ShowPartialMarkers)
                     {
+                        if (distanceFromEdge > config.PartialLineDistance)
+                        {
+                            continue;
+                        }
                         // Get all the line segments
                         var material = MyStringId.GetOrCompute("NavMarkerLines");
                         var vectorColor = color.ToVector4();
@@ -216,6 +228,8 @@ namespace NavMarkers
             }
         }
 
+        #endregion
+
         private void LoadConfig()
         {
             NavMarkerConfig.InitConfig();
@@ -229,13 +243,15 @@ namespace NavMarkers
             NavMarkerFile = "NavMarkers" + SessionName + ".dat";
             try
             {
-                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(NavMarkerFile, typeof(NavMarkerData)))
+                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(NavMarkerFile, typeof (NavMarkerData)))
                 {
-                    TextReader reader = MyAPIGateway.Utilities.ReadFileInLocalStorage(NavMarkerFile, typeof(NavMarkerData));
+                    TextReader reader = MyAPIGateway.Utilities.ReadFileInLocalStorage(NavMarkerFile, typeof( NavMarkerData));
                     var data = reader.ReadToEnd();
                     reader.Close();
-                    NavMarkers = MyAPIGateway.Utilities.SerializeFromXML<NavMarkerData>(data);
-                    NavMarkerState = NavMarkers.Enabled;
+                    NavData = MyAPIGateway.Utilities.SerializeFromXML<NavMarkerData>(data);
+                    NavMarkerState = NavData.Enabled;
+                    ShowOnlyCloseMarkers = NavData.ShowOnlyCloseMarkers;
+                    ShowPartialMarkers = NavData.ShowPartialMarkers;
                     Tools.Log($"{ModName} Loaded nav markers: {NavMarkerFile}");
                 }
                 else
@@ -247,7 +263,7 @@ namespace NavMarkers
             {
                 Tools.Log($"{ModName}: Failed to load marker data {ex}");
                 MyAPIGateway.Utilities.ShowMessage($"{ModName}", $"Error loading saved info");
-                NavMarkers = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
+                NavData = new NavMarkerData() { Enabled = false, Markers = new VRage.Serialization.SerializableDictionary<string, NavMarker>() };
                 NavMarkerState = false;
             }
         }
@@ -256,12 +272,14 @@ namespace NavMarkers
         {
             try
             {
-                NavMarkers.Enabled = NavMarkerState;
+                NavData.Enabled = NavMarkerState;
+                NavData.ShowOnlyCloseMarkers = ShowOnlyCloseMarkers;
+                NavData.ShowPartialMarkers = ShowPartialMarkers;
                 if (writeFile)
                 {
                     TextWriter writer;
                     writer = MyAPIGateway.Utilities.WriteFileInLocalStorage(NavMarkerFile, typeof(NavMarkerData));
-                    writer.Write(MyAPIGateway.Utilities.SerializeToXML(NavMarkers));
+                    writer.Write(MyAPIGateway.Utilities.SerializeToXML(NavData));
                     writer.Close();
                     Tools.Log($"{ModName}: Saved nav markers: {NavMarkerFile}");
                 }
@@ -280,7 +298,7 @@ namespace NavMarkers
             {
                 return;
             }
-
+            
             message = messageText.Substring(Keyword.Length).Trim(' ');
 
             string scanPattern = "[^\\s\"']+|\"([^\"]*)\"|'([^']*)'";
@@ -347,7 +365,7 @@ namespace NavMarkers
                 return;
             }
             string name = args[1].Trim('"');
-            var markers = NavMarkers.Markers.Dictionary.Values;
+            var markers = NavData.Markers.Dictionary.Values;
             foreach (NavMarker marker in markers)
             {
                 if (marker.Name.CompareTo(name) == 0)
@@ -362,7 +380,7 @@ namespace NavMarkers
         private void ChatCommand_List(string[] args)
         {
             StringBuilder sb = new StringBuilder();
-            var markers = NavMarkers.Markers.Dictionary.Values;
+            var markers = NavData.Markers.Dictionary.Values;
             sb.AppendLine("Active Nav Markers:");
             int index = 1;
             foreach (NavMarker marker in markers)
@@ -380,8 +398,6 @@ namespace NavMarkers
             {
                 actions.Add(TerminalControls.NavToggleAction);
                 actions.Add(TerminalControls.NavIntersectMarkerAction);
-                actions.Add(TerminalControls.NavToggleAction);
-                actions.Add(TerminalControls.NavIntersectMarkerAction);
                 actions.Add(TerminalControls.NavToggleCloseOnlyAction);
                 actions.Add(TerminalControls.NavTogglePartialDisplayAction);
             }
@@ -394,20 +410,35 @@ namespace NavMarkers
             {
                 controls.AddOrInsert(TerminalControls.Separator<IMyShipController>(), 5);
                 controls.AddOrInsert(TerminalControls.NavToggleButton, 6);
-                controls.AddOrInsert(TerminalControls.NavToggleCloseOnlyButton, 7);
-                controls.AddOrInsert(TerminalControls.NavTogglePartialDisplayButton, 8);
-                controls.AddOrInsert(TerminalControls.NavListbox, 9);
-                controls.AddOrInsert(TerminalControls.NavAddButton, 10);
-                controls.AddOrInsert(TerminalControls.NavActiveMarkerListbox, 11);
-                controls.AddOrInsert(TerminalControls.NavRemoveButton, 12);
-                controls.AddOrInsert(TerminalControls.Separator<IMyShipController>(), 13);
+                controls.AddOrInsert(TerminalControls.NavListbox, 7);
+                controls.AddOrInsert(TerminalControls.NavAddButton, 8);
+                controls.AddOrInsert(TerminalControls.NavActiveMarkerListbox, 9);
+                controls.AddOrInsert(TerminalControls.NavRemoveButton, 10);
+                controls.AddOrInsert(TerminalControls.Separator<IMyShipController>(), 11);
             }
         }
 
         #region Public interface
+
+        public void UpdateNavMarkerState(bool activated)
+        {
+            NavMarkerState = activated;
+            SaveQueued = true;
+        }
+        public void UpdateShowCloseOnly(bool activated)
+        {
+            ShowOnlyCloseMarkers = activated;
+            SaveQueued = true;
+        }
+        public void UpdateShowPartialMarkers(bool activated)
+        {
+            ShowPartialMarkers = activated;
+            SaveQueued = true;
+        }
+
         public void AddNavMarker(string name, Vector3D coords, double radius, Color color, bool forceAdd = false)
         {
-            if (NavMarkers.Markers.Dictionary.ContainsKey(name))
+            if (NavData.Markers.Dictionary.ContainsKey(name))
             {
                 MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Add Marker failed, Marker already exists: Name = {name}");
                 return;
@@ -419,19 +450,19 @@ namespace NavMarkers
             marker.Position = coords;
             marker.Radius = (float)radius;
             marker.Color = color;
-
-            NavMarkerSession.Instance.NavMarkers.Markers.Dictionary.Add(name, marker);
+            
+            NavMarkerSession.Instance.NavData.Markers.Dictionary.Add(name, marker);
             SaveQueued = true;
         }
 
         public void RemoveNavMarker(string name)
         {
-            if (NavMarkers.Markers.Dictionary.ContainsKey(name) == false)
+            if (NavData.Markers.Dictionary.ContainsKey(name) == false)
             {
                 return;
             }
             MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Removed nav marker: Name = {name}");
-            NavMarkerSession.Instance.NavMarkers.Markers.Dictionary.Remove(name);
+            NavData.Markers.Dictionary.Remove(name);
             SaveQueued = true;
         }
 
@@ -521,38 +552,6 @@ namespace NavMarkers
             return segments;
         }
 
-        private class Segment
-        {
-            public double StartX { get; set; }
-            public double StartY { get; set; }
-            public double StartZ { get; set; }
-            public double EndX { get; set; }
-            public double EndY { get; set; }
-            public double EndZ { get; set; }
-
-            public Vector3 Start => new Vector3(StartX, StartY, StartZ);
-            public Vector3 End => new Vector3(EndX, EndY, EndZ);
-
-            public Segment(double startX, double startY, double startZ, double endX, double endY, double endZ)
-            {
-                StartX = startX;
-                StartY = startY;
-                StartZ = startZ;
-                EndX = endX;
-                EndY = endY;
-                EndZ = endZ;
-            }
-
-            public Segment(Vector3 start, Vector3 end)
-            {
-                StartX = start.X;
-                StartY = start.Y;
-                StartZ = start.Z;
-                EndX = end.X;
-                EndY = end.Y;
-                EndZ = end.Z;
-            }
-        }
         public void TryIntersectMarkers()
         {
             IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
@@ -563,16 +562,21 @@ namespace NavMarkers
             double tMax = 0.0;
             double distance = double.MaxValue;
             NavMarker closestMarker = null;
-            foreach (NavMarker marker in NavMarkers.Markers.Dictionary.Values)
-            {
+            foreach (NavMarker marker in NavData.Markers.Dictionary.Values) 
+            {   
                 markerSphere.Center = marker.Position;
                 markerSphere.Radius = marker.Radius;
                 if (markerSphere.IntersectRaySphere(playerLookRay, out tMin, out tMax))
                 {
-                    if (tMin < distance)
+                    if (tMin > 0 && tMin < distance)
                     {
                         closestMarker = marker;
                         distance = tMin;
+                    }
+                    if (tMax > 0 && tMax < distance)
+                    {
+                        closestMarker = marker;
+                        distance = tMax;
                     }
                 }
             }
@@ -581,6 +585,7 @@ namespace NavMarkers
             {
                 string name = $"Intercept ({closestMarker.Name})";
                 position += playerLookRay.Direction * distance;
+                MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Intersected {closestMarker.Name} marker at distance of {distance}m");
                 IMyGps gps = MyAPIGateway.Session.GPS.Create(name, $"Intercept point of view direction with closest Nav Marker: {closestMarker.Name}", position, true, false);
                 gps.GPSColor = closestMarker.Color;
                 MyAPIGateway.Session.GPS.AddGps(player.IdentityId, gps);

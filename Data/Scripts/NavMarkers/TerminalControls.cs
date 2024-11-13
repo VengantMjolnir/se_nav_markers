@@ -25,8 +25,6 @@ namespace NavMarkers
         public static IMyTerminalAction NavTogglePartialDisplayAction;
         // Controls
         public static IMyTerminalControlOnOffSwitch NavToggleButton;
-        public static IMyTerminalControlOnOffSwitch NavToggleCloseOnlyButton;
-        public static IMyTerminalControlOnOffSwitch NavTogglePartialDisplayButton;
         public static IMyTerminalControlListbox NavListbox;
         public static IMyTerminalControlButton NavAddButton;
         public static IMyTerminalControlListbox NavActiveMarkerListbox;
@@ -96,7 +94,7 @@ namespace NavMarkers
                 NavToggleCloseOnlyAction = MyAPIGateway.TerminalControls.CreateAction<IMyShipController>("NavMarkers_ToggleCloseOnly");
                 NavToggleCloseOnlyAction.Enabled = IsControlVisible;
                 NavToggleCloseOnlyAction.Name = new StringBuilder("Toggle Nav Markers Close Range");
-                NavToggleCloseOnlyAction.Icon = @"Textures\GUI\Icons\Actions\Reverse.dds";
+                NavToggleCloseOnlyAction.Icon = @"Textures\GUI\Icons\Actions\LargeShipToggle.dds";
                 NavToggleCloseOnlyAction.ValidForGroups = false;
                 NavToggleCloseOnlyAction.InvalidToolbarTypes = new List<MyToolbarType>
                 {
@@ -110,7 +108,7 @@ namespace NavMarkers
                 NavTogglePartialDisplayAction = MyAPIGateway.TerminalControls.CreateAction<IMyShipController>("NavMarkers_TogglePartialDisplay");
                 NavTogglePartialDisplayAction.Enabled = IsControlVisible;
                 NavTogglePartialDisplayAction.Name = new StringBuilder("Toggle Nav Markers Display Mode");
-                NavTogglePartialDisplayAction.Icon = @"Textures\GUI\Icons\Actions\Reverse.dds";
+                NavTogglePartialDisplayAction.Icon = @"Textures\GUI\Icons\Actions\StationToggle.dds";
                 NavTogglePartialDisplayAction.ValidForGroups = false;
                 NavTogglePartialDisplayAction.InvalidToolbarTypes = new List<MyToolbarType>
                 {
@@ -136,28 +134,7 @@ namespace NavMarkers
                 NavToggleButton.Setter = NavToggle_Setter;
             }
             {
-                NavToggleCloseOnlyButton = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, IMyShipController>("NavMarkers_ToggleCloseOnlyButton");
-                NavToggleCloseOnlyButton.Title = MyStringId.GetOrCompute("Close Range Only");
-                NavToggleCloseOnlyButton.Tooltip = MyStringId.GetOrCompute("Only show if 100,000km away from a border");
-                NavToggleCloseOnlyButton.SupportsMultipleBlocks = false;
-                NavToggleCloseOnlyButton.Visible = IsControlVisible;
-                NavToggleCloseOnlyButton.OnText = MyStringId.GetOrCompute("Close");
-                NavToggleCloseOnlyButton.OffText = MyStringId.GetOrCompute("All");
-                NavToggleCloseOnlyButton.Getter = NavToggleCloseOnly_Getter;
-                NavToggleCloseOnlyButton.Setter = NavToggleCloseOnly_Setter;
-            }
-            {
-                NavTogglePartialDisplayButton = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, IMyShipController>("NavMarkers_TogglePartialDisplayButton");
-                NavTogglePartialDisplayButton.Title = MyStringId.GetOrCompute("Display Style");
-                NavTogglePartialDisplayButton.Tooltip = MyStringId.GetOrCompute("Show as full sphere around zone or only partial near player");
-                NavTogglePartialDisplayButton.SupportsMultipleBlocks = false;
-                NavTogglePartialDisplayButton.Visible = IsControlVisible;
-                NavTogglePartialDisplayButton.OnText = MyStringId.GetOrCompute("Partial");
-                NavTogglePartialDisplayButton.OffText = MyStringId.GetOrCompute("Full");
-                NavTogglePartialDisplayButton.Getter = NavTogglePartialDisplay_Getter;
-                NavTogglePartialDisplayButton.Setter = NavTogglePartialDisplay_Setter;
-            }
-            {
+
                 NavListbox = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlListbox, IMyShipController>("NavMarkers_List");
                 NavListbox.Enabled = IsControlVisible;
                 NavListbox.Visible = IsControlVisible;
@@ -270,23 +247,19 @@ namespace NavMarkers
             MyLog.Default.WriteLineAndConsole($"Selected Marker from list {SelectedMarker}");
         }
 
-        private static void UpdateNavMarkerState(IMyTerminalBlock block, bool activated)
-        {
-            NavMarkerSession.Instance.NavMarkerState = activated;
-        }
         private static bool NavToggle_Getter(IMyTerminalBlock block)
         {
             return NavMarkerSession.Instance.NavMarkerState;
         }
         private static void NavToggle_Setter(IMyTerminalBlock block, bool activated)
         {
-            UpdateNavMarkerState(block, activated);
+            NavMarkerSession.Instance.UpdateNavMarkerState(activated);
         }
 
         #region Actions
         private static void NavAction_Toggle(IMyTerminalBlock block)
         {
-            UpdateNavMarkerState(block, !NavMarkerSession.Instance.NavMarkerState);
+            NavMarkerSession.Instance.UpdateNavMarkerState(!NavMarkerSession.Instance.NavMarkerState);
         }
 
         private static void NavAction_IntersectMarker(IMyTerminalBlock block)
@@ -294,34 +267,15 @@ namespace NavMarkers
             NavMarkerSession.Instance.TryIntersectMarkers();
         }
 
-        private static bool NavToggleCloseOnly_Getter(IMyTerminalBlock block)
-        {
-            return NavMarkerSession.Instance.CloseOnly;
-        }
-
-        private static void NavToggleCloseOnly_Setter(IMyTerminalBlock block, bool closeOnly)
-        {
-            NavMarkerSession.Instance.CloseOnly = closeOnly;
-        }
-
         private static void NavAction_ToggleCloseOnly(IMyTerminalBlock block)
         {
-            NavMarkerSession.Instance.CloseOnly = !NavMarkerSession.Instance.CloseOnly;
+            NavMarkerSession.Instance.UpdateShowCloseOnly(!NavMarkerSession.Instance.ShowOnlyCloseMarkers);
         }
 
-        private static bool NavTogglePartialDisplay_Getter(IMyTerminalBlock block)
-        {
-            return NavMarkerSession.Instance.PartialDisplay;
-        }
-
-        private static void NavTogglePartialDisplay_Setter(IMyTerminalBlock block, bool partialDisplay)
-        {
-            NavMarkerSession.Instance.PartialDisplay = partialDisplay;
-        }
 
         private static void NavAction_TogglePartialDisplay(IMyTerminalBlock block)
         {
-            NavMarkerSession.Instance.PartialDisplay = !NavMarkerSession.Instance.PartialDisplay;
+            NavMarkerSession.Instance.UpdateShowPartialMarkers(!NavMarkerSession.Instance.ShowPartialMarkers);
         }
         #endregion
 
@@ -348,7 +302,7 @@ namespace NavMarkers
 
         private static void FillMarkerList(IMyTerminalBlock block, List<MyTerminalControlListBoxItem> list, List<MyTerminalControlListBoxItem> selected)
         {
-            foreach (NavMarker marker in NavMarkerSession.Instance.NavMarkers.Markers.Dictionary.Values)
+            foreach (NavMarker marker in NavMarkerSession.Instance.NavData.Markers.Dictionary.Values)
             {
                 list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(marker.Name), MyStringId.NullOrEmpty, marker.Name));
             }

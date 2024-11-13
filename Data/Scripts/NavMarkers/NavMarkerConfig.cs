@@ -47,8 +47,10 @@ namespace NavMarkers.Data.Scripts.NavMarkers
 
         #region HudAPI fields
         private HudAPIv2.MenuRootCategory SettingsMenu;
+        private HudAPIv2.MenuSubCategory VisualSubCategory, DistanceSubCategory;
         private HudAPIv2.MenuItem EnableSolidRenderItem, RenderAfterPostProcessItem;
         private HudAPIv2.MenuSliderInput AlphaValueSlider, BloomIntensitySlider, WireframeWidthSlider;
+        private HudAPIv2.MenuTextInput CloseDistanceInput, PartialDistanceInput;
 
         #endregion
 
@@ -116,11 +118,17 @@ namespace NavMarkers.Data.Scripts.NavMarkers
         public void InitMenu()
         {
             SettingsMenu = new HudAPIv2.MenuRootCategory("Nav Markers", HudAPIv2.MenuRootCategory.MenuFlag.PlayerMenu, "Nav Markers Settings");
-            EnableSolidRenderItem = new HudAPIv2.MenuItem($"Enable Solid Render Mode: {EnableSolidRender}", SettingsMenu, ShowEnableSolidRender);
-            RenderAfterPostProcessItem = new HudAPIv2.MenuItem($"Wireframe Blend Mode: {(RenderAfterPostProcess ? "After PostProcess" : "Alpha")}", SettingsMenu, ShowRenderMode);
-            AlphaValueSlider = new HudAPIv2.MenuSliderInput($"Alpha Value: {AlphaValue}", SettingsMenu, (float)(AlphaValue / 255f), "Adjust Slider to modify sphere transparency", ChangeAlphaValue, GetAlphaValue);
-            BloomIntensitySlider = new HudAPIv2.MenuSliderInput($"Bloom Intensity: {BloomIntensity}", SettingsMenu, BloomIntensity, "Adjust Slider to modify wireframe line intensity", ChangeBloomIntensity, GetBloomIntensity);
-            WireframeWidthSlider = new HudAPIv2.MenuSliderInput($"Wireframe Width: {WireframeWidth}", SettingsMenu, WireframeWidth - 0.5f, "Adjust Slider to modify wireframe width", ChangeWireframeWidth, GetWireframeWidth);
+            
+            VisualSubCategory = new HudAPIv2.MenuSubCategory("Visual Settings >>", SettingsMenu, "Visual Settings");
+            EnableSolidRenderItem = new HudAPIv2.MenuItem($"Enable Solid Render Mode: {EnableSolidRender}", VisualSubCategory, ShowEnableSolidRender);
+            RenderAfterPostProcessItem = new HudAPIv2.MenuItem($"Wireframe Blend Mode: {(RenderAfterPostProcess ? "After PostProcess" : "Alpha")}", VisualSubCategory, ShowRenderMode);
+            AlphaValueSlider = new HudAPIv2.MenuSliderInput($"Alpha Value: {AlphaValue}", VisualSubCategory, (float)(AlphaValue / 255f), "Adjust Slider to modify sphere transparency", ChangeAlphaValue, GetAlphaValue);
+            BloomIntensitySlider = new HudAPIv2.MenuSliderInput($"Bloom Intensity: {BloomIntensity}", VisualSubCategory, BloomIntensity / 2f, "Adjust Slider to modify wireframe line intensity", ChangeBloomIntensity, GetBloomIntensity);
+            WireframeWidthSlider = new HudAPIv2.MenuSliderInput($"Wireframe Width: {WireframeWidth}", VisualSubCategory, WireframeWidth - 0.5f, "Adjust Slider to modify wireframe width", ChangeWireframeWidth, GetWireframeWidth);
+
+            DistanceSubCategory = new HudAPIv2.MenuSubCategory("Distance Based Settings >>", SettingsMenu, "Distance Settings");
+            CloseDistanceInput = new HudAPIv2.MenuTextInput($"Close Distance: {CloseOnlyDistance}", DistanceSubCategory, "Enter distance to show markers (in meters)", UpdateCloseDistance);
+            PartialDistanceInput = new HudAPIv2.MenuTextInput($"Partial Line Distance: {PartialLineDistance}", DistanceSubCategory, "Enter distance to show marker lines (in meters)", UpdatePartialDistance);
         }
 
         private void ShowEnableSolidRender()
@@ -152,7 +160,7 @@ namespace NavMarkers.Data.Scripts.NavMarkers
 
         private void ChangeBloomIntensity(float input)
         {
-            BloomIntensity = input;
+            BloomIntensity = input * 2f;
             BloomIntensitySlider.Text = $"Bloom Intensity: {BloomIntensity}";
             BloomIntensitySlider.InitialPercent = BloomIntensity;
             Save(this);
@@ -160,7 +168,7 @@ namespace NavMarkers.Data.Scripts.NavMarkers
 
         private object GetBloomIntensity(float input)
         {
-            return input;
+            return input * 2f;
         }
 
         private void ChangeWireframeWidth(float input)
@@ -174,6 +182,26 @@ namespace NavMarkers.Data.Scripts.NavMarkers
         private object GetWireframeWidth(float input)
         {
             return input + 0.5f;
+        }
+
+        private void UpdateCloseDistance(string obj)
+        {
+            int getter;
+            if (!int.TryParse(obj, out getter))
+                return;
+            CloseOnlyDistance = getter;
+            CloseDistanceInput.Text = $"Close Distance: {CloseOnlyDistance}";
+            Save(this);
+        }
+
+        private void UpdatePartialDistance(string obj)
+        {
+            int getter;
+            if (!int.TryParse(obj, out getter))
+                return;
+            PartialLineDistance = getter;
+            PartialDistanceInput.Text = $"Partial Line Distance: {PartialLineDistance}";
+            Save(this);
         }
     }
 }
