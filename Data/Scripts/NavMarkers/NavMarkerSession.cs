@@ -39,8 +39,6 @@ namespace NavMarkers
 
         private Dictionary<string, ChatCommand> ChatCommands;
 
-        private double _closeRange = 100000d;
-        private double _lineRange = 175000d;
         private Dictionary<NavMarker, List<Segment>> _navMarkerSegments = new Dictionary<NavMarker, List<Segment>>();
 
         public override void LoadData()
@@ -137,12 +135,12 @@ namespace NavMarkers
                     double sizeMultiplier = marker.Radius / 100000.0;
 
                     // Only show if within X km of the border
-                    if (CloseOnly && distanceFromEdge > _closeRange) { continue; }
+                    if (CloseOnly && distanceFromEdge > config.CloseOnlyDistance) { continue; }
 
                     Color color = marker.Color;
                     MatrixD matrix = MatrixD.Identity;
                     matrix.Translation = marker.Position;
-                    color.A = (byte)config.alphaValue;
+                    color.A = (byte)config.AlphaValue;
                     float radius = (float)marker.Radius / 1000.0f;
 
                     int wireSegments = Math.Max(2, (int)(marker.Radius * 3 / distanceFromEdge)) * 12;
@@ -165,11 +163,11 @@ namespace NavMarkers
                     wireframeWidth = Math.Max(radius, Math.Min(150.0f * (float)sizeMultiplier, wireframeWidth));
 
                     // Set to wireframe based on config
-                    if (config.enableSolidRender == false)
+                    if (config.EnableSolidRender == false)
                     {
                         rasterMode = MySimpleObjectRasterizer.Wireframe;
                         // Allow overriding of blend mode based on config
-                        blendType = config.renderAfterPostProcess ? BlendType.PostPP : BlendType.AdditiveBottom;
+                        blendType = config.RenderAfterPostProcess ? BlendType.PostPP : BlendType.AdditiveBottom;
                     }
 
                     if (!PartialDisplay)
@@ -202,7 +200,7 @@ namespace NavMarkers
                         {
                             var distanceStart = Vector3D.Distance(player.GetPosition(), segment.Start);
                             var distanceEnd = Vector3D.Distance(player.GetPosition(), segment.End);
-                            if (distanceStart > _lineRange && distanceEnd > _lineRange) { continue; } // Don't show segments if far away
+                            if (distanceStart > config.PartialLineDistance && distanceEnd > config.PartialLineDistance) { continue; } // Don't show segments if far away
                             MySimpleObjectDraw.DrawLine(segment.Start, segment.End, material, ref vectorColor, 200f, blendType); // Thickness might need to be auto set? 200 seems good when ~100km away
                         }
                     }
