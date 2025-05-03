@@ -15,6 +15,7 @@ namespace NavMarkers
 
     public class Tools
     {
+        public const string ModName = "NavMarkers";
         public static bool LoggingEnabled = false;
 
         public static void Log(string message)
@@ -38,7 +39,7 @@ namespace NavMarkers
 
         public static void Log(MyLogSeverity level, string message)
         {
-            MyLog.Default.Log(level, $"[RaceCourse] {message}");
+            MyLog.Default.Log(level, $"{message}");
             MyLog.Default.Flush();
         }
 
@@ -52,10 +53,33 @@ namespace NavMarkers
             return level == MyPromoteLevel.SpaceMaster || level == MyPromoteLevel.Admin || level == MyPromoteLevel.Owner;
         }
 
+        public static bool TryParseRadiusAndName(string[] args, out double radius, out string name)
+        {
+            if (args.Length < 3)
+            {
+                name = "";
+                radius = 0;
+                return false;
+            }
+            name = args[2];
+            if (!double.TryParse(args[1], out radius))
+            {
+                Tools.Log($"{ModName}: Failed to parse double from '{args[1]}', trying args in opposite order.");
+                name = args[1];
+                if (!double.TryParse(args[2], out radius))
+                {
+                    Tools.Log($"{ModName}: Failed to parse double from '{args[2]}' as well.");
+                    return false;
+                }
+            }
+            name = name.Trim('"');
+            return true;
+        }
+
         public static bool TryParseGPSRange(string input, out double range)
         {
             double radius = 0;
-            string[] scanPatterns = new string[] { ".*\\(R-(\\d+\\.*\\d*)[km]*\\)", ".*\\(R:(\\d+\\.*\\d*)[km]*\\)", ".*\\[R-(\\d+\\.*\\d*)[km]*\\]", ".*\\[R:(\\d+\\.*\\d*)[km]*\\]" };
+            string[] scanPatterns = new string[] { ".*\\(R.(\\d+\\.*\\d*)[km]*\\)", ".*\\(R-(\\d+\\.*\\d*)[km]*\\)", ".*\\(R:(\\d+\\.*\\d*)[km]*\\)", ".*\\[R.(\\d+\\.*\\d*)[km]*\\]", ".*\\[R-(\\d+\\.*\\d*)[km]*\\]", ".*\\[R:(\\d+\\.*\\d*)[km]*\\]" };
             foreach (var scanPattern in scanPatterns)// string scanPattern = ".*\\(R-(\\d+)\\)";
             {
                 Match match = Regex.Match(input, scanPattern);

@@ -23,7 +23,7 @@ namespace NavMarkers
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
     public class NavMarkerSession : MySessionComponentBase
     {
-        public const string Keyword = "/nav";
+        public static string[] Keywords = { "/nav", "/nm" };
         public const string ModName = "NavMarkers";
 
         public static NavMarkerSession Instance { get; private set; }
@@ -80,7 +80,14 @@ namespace NavMarkers
                 { "help", new ChatCommand() { command = "help", callback = ChatCommand_Help } },
                 { "add", new ChatCommand() { command = "add", callback = ChatCommand_Add } },
                 { "remove", new ChatCommand() { command = "remove", callback = ChatCommand_Remove } },
-                { "list", new ChatCommand() { command = "list", callback = ChatCommand_List } }
+                { "list", new ChatCommand() { command = "list", callback = ChatCommand_List } },
+                { "l", new ChatCommand() { command = "l", callback = ChatCommand_List} },
+                { "set", new ChatCommand() { command = "set", callback = ChatCommand_SetRange } },
+                { "toggle", new ChatCommand() { command = "toggle", callback = ChatCommand_Toggle } },
+                { "t", new ChatCommand() { command = "t", callback = ChatCommand_Toggle } },
+                { "intersect", new ChatCommand() { command = "intersect", callback = ChatCommand_IntersectMarkers } },
+                { "i", new ChatCommand() { command = "i", callback = ChatCommand_IntersectMarkers } },
+                { "close", new ChatCommand() { command = "close", callback = ChatCommand_ClosestEdges } }
             };
         }
 
@@ -294,12 +301,21 @@ namespace NavMarkers
         private void OnMessageEntered(ulong sender, string messageText, ref bool sendToOthers)
         {
             var message = messageText.ToLower();
-            if (message.StartsWith(Keyword) == false)
+            string keyword = "";
+            foreach (string key in Keywords)
+            {
+                if (message.StartsWith(key))
+                {
+                    keyword = key;
+                    break;
+                }
+            }
+            if (keyword == "")
             {
                 return;
             }
             
-            message = messageText.Substring(Keyword.Length).Trim(' ');
+            message = messageText.Substring(keyword.Length).Trim(' ');
 
             string scanPattern = "[^\\s\"']+|\"([^\"]*)\"|'([^']*)'";
             MatchCollection matches = Regex.Matches(message, scanPattern);
@@ -321,29 +337,55 @@ namespace NavMarkers
         #region Chat Commands
         private void ChatCommand_Help(string[] args)
         {
-            MyAPIGateway.Utilities.ShowMissionScreen("Nav Markers Help", "Test", "Testing", "This is the description");
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Nav Marker Chat Commands:");
+            sb.AppendLine();
+            sb.AppendLine("\t'help':");
+            sb.AppendLine("\t                   - Show this window");
+            sb.AppendLine("\t'add':");
+            sb.AppendLine("\t                   - Add new markers, parameters are <radius> and <name>");
+            sb.AppendLine("\t                   - <name> can have spaces but must be surrounded in quotes");
+            sb.AppendLine("\t                   - <radius> is in kilometers");
+            sb.AppendLine("\t                   - Example: /nav add 100 \"Saturn Rings\"");
+            sb.AppendLine("\t                     - Adds a nav marker with a Radius of 100km centered on");
+            sb.AppendLine("\t                       the GPS point named \"Saturn Rings\"");
+            sb.AppendLine("\t'remove':");
+            sb.AppendLine("\t                   - Remove nav marker by <name>, must match exactly");
+            sb.AppendLine("\t                   - Example: /nav remove \"Saturn Rings\"");
+            sb.AppendLine("\t                     - Removes the marker with the name \"Saturn Rings\"");
+            sb.AppendLine("\t'list' or 'l':");
+            sb.AppendLine("\t                   - Lists all active markers");
+            sb.AppendLine("\t'set':");
+            sb.AppendLine("\t                   - Update existing marker, parameters <radius> and <name>");
+            sb.AppendLine("\t                   - Example: /nav set 500 \"Saturn Rings\"");
+            sb.AppendLine("\t                     - Changes radius of \"Saturn Rings\" to be 500km");
+            sb.AppendLine("\t'toggle' or 't':");
+            sb.AppendLine("\t                   - Toggles markers visible on/off");
+            sb.AppendLine("\t'close':");
+            sb.AppendLine("\t                   - Toggles show only close markers (See F2 menu settings)");
+            sb.AppendLine("\t'intersect' or 'i':");
+            sb.AppendLine("\t                   - Create a new GPS marker at the intersection of the camera");
+            sb.AppendLine("\t                     view direction and active nav markers");
+
+            string title = "Chat commands can use either /nav or /nm";
+            MyAPIGateway.Utilities.ShowMissionScreen("Nav Markers Help", title, "", sb.ToString());
         }
 
         private void ChatCommand_Add(string[] args)
         {
             if (args.Length < 3)
             {
-                MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"'/nav add' requires at least two arguments: <range> and <gps_name>");
+                MyAPIGateway.Utilities.ShowMessage(ModName, $"'/nav add' requires at least two arguments: <range> and <gps_name>");
                 return;
             }
-            string name = args[2];
+            string name;
             double radius;
-            if (!double.TryParse(args[1], out radius))
+            if (Tools.TryParseRadiusAndName(args, out radius, out name) == false)
             {
-                Tools.Log($"{ModName}: Failed to parse double from '{args[1]}', trying args in opposite order.");
-                name = args[1];
-                if (!double.TryParse(args[2], out radius))
-                {
-                    Tools.Log($"{ModName}: Failed to parse double from '{args[2]}' as well. No marker added");
-                    return;
-                }
+                Tools.Log($"{ModName}: Failed to parse double from both '{args[1]}' and '{args[2]}'. No marker added");
+                MyAPIGateway.Utilities.ShowMessage(ModName, "Failed to parse name and radius. See log for details. No marker added");
+                return;
             }
-            name = name.Trim('"');
             List<IMyGps> gpsList = MyAPIGateway.Session.GPS.GetGpsList(MyAPIGateway.Session.LocalHumanPlayer.IdentityId);
             foreach (IMyGps gps in gpsList)
             {
@@ -354,14 +396,14 @@ namespace NavMarkers
                 }
             }
 
-            MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Add Marker failed, no GPS with name exists: Name = {name}");
+            MyAPIGateway.Utilities.ShowMessage(ModName, $"Add Marker failed, no GPS with name exists: Name = {name}");
         }
 
         private void ChatCommand_Remove(string[] args)
         {
             if (args.Length < 2)
             {
-                MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"'/nav remove' requires at least one argument: <name>");
+                MyAPIGateway.Utilities.ShowMessage(ModName, $"'/nav remove' requires at least one argument: <name>");
                 return;
             }
             string name = args[1].Trim('"');
@@ -374,7 +416,7 @@ namespace NavMarkers
                     return;
                 }
             }
-            MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Remove Marker failed, no marker with name exists: Name = {name}.");
+            MyAPIGateway.Utilities.ShowMessage(ModName, $"Remove Marker failed, no marker with name exists: Name = {name}.");
         }
 
         private void ChatCommand_List(string[] args)
@@ -387,7 +429,51 @@ namespace NavMarkers
             {
                 sb.AppendLine($"{index}. {marker.Name}");
             }
-            MyAPIGateway.Utilities.ShowMessage("NavMarkers", sb.ToString());
+            MyAPIGateway.Utilities.ShowMessage(ModName, sb.ToString());
+        }
+
+        private void ChatCommand_SetRange(string[] args)
+        {
+            if (args.Length < 3)
+            {
+                MyAPIGateway.Utilities.ShowMessage(ModName, $"'/nav set' requires at least two arguments: <name> <range>");
+                return;
+            }
+            string name;
+            double radius;
+            if (Tools.TryParseRadiusAndName(args, out radius, out name) == false)
+            {
+                Tools.Log($"{ModName}: Failed to parse double from both '{args[1]}' and '{args[2]}'. No marker changed");
+                MyAPIGateway.Utilities.ShowMessage(ModName, "Failed to parse name and radius. See log for details. No marker changed");
+                return;
+            }
+            var markers = NavData.Markers.Dictionary.Values;
+            foreach (NavMarker marker in markers)
+            {
+                if (marker.Name.CompareTo(name) == 0)
+                {
+                    marker.Radius = (float)(radius * 1000.0);
+                    SaveQueued = true;
+                    MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Updated nav marker: Radius = {radius}, Name = {name}");
+                    return;
+                }
+            }
+            MyAPIGateway.Utilities.ShowMessage(ModName, $"Remove Marker failed, no marker with name exists: Name = {name}.");
+        }
+
+        private void ChatCommand_Toggle(string[] args)
+        {
+            UpdateNavMarkerState(!NavMarkerState);
+        }
+
+        private void ChatCommand_IntersectMarkers(string[] args)
+        {
+            TryIntersectMarkers();
+        }
+
+        private void ChatCommand_ClosestEdges(string[] args)
+        {
+            UpdateShowCloseOnly(!ShowOnlyCloseMarkers);
         }
         #endregion
 
