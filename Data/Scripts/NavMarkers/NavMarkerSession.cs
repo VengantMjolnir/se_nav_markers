@@ -1,5 +1,6 @@
 ﻿using Draygo.API;
 using NavMarkers.Data.Scripts.NavMarkers;
+using Sandbox.Engine.Utils;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Interfaces.Terminal;
@@ -9,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using VRage;
 using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.Entity;
@@ -87,7 +89,8 @@ namespace NavMarkers
                 { "t", new ChatCommand() { command = "t", callback = ChatCommand_Toggle } },
                 { "intersect", new ChatCommand() { command = "intersect", callback = ChatCommand_IntersectMarkers } },
                 { "i", new ChatCommand() { command = "i", callback = ChatCommand_IntersectMarkers } },
-                { "close", new ChatCommand() { command = "close", callback = ChatCommand_ClosestEdges } }
+                { "close", new ChatCommand() { command = "close", callback = ChatCommand_ClosestEdges } },
+                { "load", new ChatCommand() { command = "load", callback = ChatCommand_Reload } },
             };
         }
 
@@ -146,6 +149,10 @@ namespace NavMarkers
                 {
                     if (marker == null)
                         continue; // Huh? Nothing in the lifetime should produce this, but without line numbers for the null reference I'm being extra careful on this one
+                    
+                    if (marker.Active == false)
+                        continue; // Skip inactive markers
+
                     double distance = Vector3D.Distance(player.GetPosition(), marker.Position);
                     double distanceFromEdge = Math.Abs(distance - marker.Radius);
                     double sizeMultiplier = marker.Radius / 100000.0;
@@ -342,30 +349,48 @@ namespace NavMarkers
             sb.AppendLine();
             sb.AppendLine("\t'help':");
             sb.AppendLine("\t                   - Show this window");
+            sb.AppendLine("\t                   - See F2 menu for config options/settings");
+            sb.AppendLine("\t'list' or 'l':");
+            sb.AppendLine("\t                   - Lists all active markers and their index");
             sb.AppendLine("\t'add':");
             sb.AppendLine("\t                   - Add new markers, parameters are <radius> and <name>");
             sb.AppendLine("\t                   - <name> can have spaces but must be surrounded in quotes");
+            sb.AppendLine("\t                     - Name must exactly match an existing GPS name");
             sb.AppendLine("\t                   - <radius> is in kilometers");
             sb.AppendLine("\t                   - Example: /nav add 100 \"Saturn Rings\"");
             sb.AppendLine("\t                     - Adds a nav marker with a Radius of 100km centered on");
             sb.AppendLine("\t                       the GPS point named \"Saturn Rings\"");
             sb.AppendLine("\t'remove':");
-            sb.AppendLine("\t                   - Remove nav marker by <name>, must match exactly");
+            sb.AppendLine("\t                   - Remove nav marker by <name> or <index>");
+            sb.AppendLine("\t                     - Name must exactly match an existing marker name");
             sb.AppendLine("\t                   - Example: /nav remove \"Saturn Rings\"");
             sb.AppendLine("\t                     - Removes the marker with the name \"Saturn Rings\"");
-            sb.AppendLine("\t'list' or 'l':");
-            sb.AppendLine("\t                   - Lists all active markers");
             sb.AppendLine("\t'set':");
-            sb.AppendLine("\t                   - Update existing marker, parameters <radius> and <name>");
+            sb.AppendLine("\t                   - Update existing marker, parameter options:");
+            sb.AppendLine("\t                     - <radius> <name> ");
+            sb.AppendLine("\t                     - <radius> <index> ");
+            sb.AppendLine("\t                     - <radius> is in kilometers");
+            sb.AppendLine("\t                     - will attempt to parse them in opposite order");
             sb.AppendLine("\t                   - Example: /nav set 500 \"Saturn Rings\"");
             sb.AppendLine("\t                     - Changes radius of \"Saturn Rings\" to be 500km");
+            sb.AppendLine("\t                   - Example: /nav set 15.5 4");
+            sb.AppendLine("\t                     - Changes radius of the fourth marker to be 15.5km");
             sb.AppendLine("\t'toggle' or 't':");
-            sb.AppendLine("\t                   - Toggles markers visible on/off");
+            sb.AppendLine("\t                   - Toggles markers visible on/off.");
+            sb.AppendLine("\t                   - Optional <index> or <name> as second parameter");
+            sb.AppendLine("\t                     - <index> or <name> can be used to toggle a single marker");
+            sb.AppendLine("\t                     - <name> will try for exact name first, then parital match");
+            sb.AppendLine("\t                   - Optional 'on' or 'off' as third parameter");
+            sb.AppendLine("\t                     - sets marker on or off depending, instead of toggling state");
             sb.AppendLine("\t'close':");
             sb.AppendLine("\t                   - Toggles show only close markers (See F2 menu settings)");
             sb.AppendLine("\t'intersect' or 'i':");
             sb.AppendLine("\t                   - Create a new GPS marker at the intersection of the camera");
             sb.AppendLine("\t                     view direction and active nav markers");
+            sb.AppendLine("\t'load':");
+            sb.AppendLine("\t                   - Reloads nav markers from file data. ");
+            sb.AppendLine("\t                   - Optional <bool> will create missing GPS markers");
+            sb.AppendLine("\t                   - Example: /nav load true");
 
             string title = "Chat commands can use either /nav or /nm";
             MyAPIGateway.Utilities.ShowMissionScreen("Nav Markers Help", title, "", sb.ToString());
@@ -401,21 +426,38 @@ namespace NavMarkers
 
         private void ChatCommand_Remove(string[] args)
         {
-            if (args.Length < 2)
+            if (args.Length != 2)
             {
-                MyAPIGateway.Utilities.ShowMessage(ModName, $"'/nav remove' requires at least one argument: <name>");
+                MyAPIGateway.Utilities.ShowMessage(ModName, $"'/nav remove' requires exactly one argument: <name>/<index>");
                 return;
             }
+
+            // Try by index first
+            int index = -1;
+            if (int.TryParse(args[1], out index))
+            {
+                NavMarker marker = GetMarkerByIndex(index);
+                if (marker == null)
+                {
+                    MyAPIGateway.Utilities.ShowMessage(ModName, $"Remove Marker failed, no marker at index {index}.");
+                    return;
+                }
+                RemoveNavMarker(marker.Name);
+                return;
+            }
+
             string name = args[1].Trim('"');
             var markers = NavData.Markers.Dictionary.Values;
             foreach (NavMarker marker in markers)
             {
+                // Try exact name first
                 if (marker.Name.CompareTo(name) == 0)
                 {
                     RemoveNavMarker(name);
                     return;
                 }
             }
+
             MyAPIGateway.Utilities.ShowMessage(ModName, $"Remove Marker failed, no marker with name exists: Name = {name}.");
         }
 
@@ -424,10 +466,10 @@ namespace NavMarkers
             StringBuilder sb = new StringBuilder();
             var markers = NavData.Markers.Dictionary.Values;
             sb.AppendLine("Active Nav Markers:");
-            int index = 1;
-            foreach (NavMarker marker in markers)
+            for (int index = 0; index < markers.Count; ++index)
             {
-                sb.AppendLine($"{index}. {marker.Name}");
+                NavMarker marker = NavData.Markers.Dictionary.Values.ElementAt(index);
+                sb.AppendLine($"{index+1}: {marker.Name}");
             }
             MyAPIGateway.Utilities.ShowMessage(ModName, sb.ToString());
         }
@@ -439,8 +481,34 @@ namespace NavMarkers
                 MyAPIGateway.Utilities.ShowMessage(ModName, $"'/nav set' requires at least two arguments: <name> <range>");
                 return;
             }
+
+            int index = -1;
             string name;
             double radius;
+            // Try by index first
+            if (Tools.TryParseRadiusThenIndex(args, out radius, out index))
+            {
+                NavMarker marker = GetMarkerByIndex(index);
+                if (marker == null)
+                {
+                    Tools.Log($"{ModName}: No marker at index {index}, trying in reverse order.");
+                    if (Tools.TryParseIndexThenRadius(args, out radius, out index))
+                    {
+                        marker = GetMarkerByIndex(index);
+                        if (marker == null)
+                        {
+                            MyAPIGateway.Utilities.ShowMessage(ModName, $"Set marker radius failed, no marker at index {index} or at {radius}.");
+                            return;
+                        }
+                    }
+                }
+                marker.Radius = (float)(radius * 1000.0);
+                SaveQueued = true;
+                MyAPIGateway.Utilities.ShowMessage("NavMarkers", $"Updated nav marker: Radius = {radius}, index = {index}");
+                return;
+            }
+
+            // Otherwise try by name
             if (Tools.TryParseRadiusAndName(args, out radius, out name) == false)
             {
                 Tools.Log($"{ModName}: Failed to parse double from both '{args[1]}' and '{args[2]}'. No marker changed");
@@ -458,12 +526,70 @@ namespace NavMarkers
                     return;
                 }
             }
-            MyAPIGateway.Utilities.ShowMessage(ModName, $"Remove Marker failed, no marker with name exists: Name = {name}.");
+            MyAPIGateway.Utilities.ShowMessage(ModName, $"Set marker radius failed, no marker with name exists: Name = {name}.");
         }
 
         private void ChatCommand_Toggle(string[] args)
         {
-            UpdateNavMarkerState(!NavMarkerState);
+            if (args.Length == 1)
+            {
+                UpdateNavMarkerState(!NavMarkerState);
+                return;
+            }
+
+            if (args.Length > 3)
+            {
+                MyAPIGateway.Utilities.ShowMessage(ModName, $"'/nav toggle' accepts no more than 2 arguments: <name>/<index> and <'on'/'off'>");
+                return;
+            }
+
+            bool setStateDirectly = false;
+            bool newState = false;
+            if (args.Length == 3)
+            {
+                newState = args[2].ToLower() == "on";
+                setStateDirectly = true;
+            }
+            // Try by index first
+            int index = -1;
+            if (int.TryParse(args[1], out index))
+            {
+                NavMarker marker = GetMarkerByIndex(index);
+                if (marker == null)
+                {
+                    MyAPIGateway.Utilities.ShowMessage(ModName, $"Toggle Marker failed, no marker at index {index}.");
+                    return;
+                }
+                ToggleMarkerActiveState(marker.Name, setStateDirectly, newState);
+                return;
+            }
+
+            string name = args[1].Trim('"');
+            var markers = NavData.Markers.Dictionary.Values;
+            foreach (NavMarker marker in markers)
+            {
+                // Try exact name first
+                if (marker.Name.CompareTo(name) == 0)
+                {
+                    ToggleMarkerActiveState(marker.Name, setStateDirectly, newState);
+                    return;
+                }
+            }
+
+            bool toggledOne = false;
+            // Try fuzzy matching if exact name not found. This can toggle multle markers if their names contain the search string
+            foreach (NavMarker marker in markers)
+            {
+                if (marker.Name.IndexOf(name) >= 0)
+                {
+                    ToggleMarkerActiveState(marker.Name, setStateDirectly, newState);
+                    toggledOne = true;
+                }
+            }
+            if (!toggledOne)
+            {
+                MyAPIGateway.Utilities.ShowMessage(ModName, $"Toggle Marker failed, no marker with name exists: Name = {name}.");
+            }
         }
 
         private void ChatCommand_IntersectMarkers(string[] args)
@@ -475,6 +601,71 @@ namespace NavMarkers
         {
             UpdateShowCloseOnly(!ShowOnlyCloseMarkers);
         }
+
+        private void ChatCommand_Import(string[] args)
+        {
+        }
+
+        private void ChatCommand_Export(string[] args)
+        {
+            string markers = MyAPIGateway.Utilities.SerializeToXML(NavData);
+            VRage.Utils.MyClipboardHelper.SetClipboard(markers);
+            StringBuilder sb = new StringBuilder();
+            string title = "Exported nav markers to clipboard: ";
+            sb.Append(markers);
+            MyAPIGateway.Utilities.ShowMissionScreen("Nav Markers", title, "", sb.ToString());
+        }
+
+        private void ChatCommand_Reload(string[] args)
+        {
+            bool createMissing = false;
+            if (args.Length > 1 &&  bool.Parse(args[1]))
+            {
+                createMissing = true;
+            }
+            LoadMarkers();
+            // This probably isn't necessary... but I don't want to send off a ton of GPS markers to the server. This mod could load a user file
+            // that would then create a lot of GPS markers if they don't already exist. That isn't ideal for the server so let's cap it
+            int limit = 100;
+            if (createMissing)
+            {
+                IMyPlayer player = MyAPIGateway.Session.LocalHumanPlayer;
+                if (player == null)
+                {
+                    MyAPIGateway.Utilities.ShowMessage("NavMarkers", "Reload failed, no local player found");
+                    return;
+                }
+                var markers = NavData.Markers.Dictionary.Values;
+                List<IMyGps> gpsList = MyAPIGateway.Session.GPS.GetGpsList(player.IdentityId);
+                foreach (NavMarker marker in markers)
+                {
+                    bool found = false;
+                    foreach (IMyGps gps in gpsList)
+                    {
+                        if (gps.Name.CompareTo(marker.Name) == 0)
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found)
+                    {
+                        IMyGps gps = MyAPIGateway.Session.GPS.Create(marker.Name, "Created by NavMarkers import/reload", marker.Position, true, false);
+                        gps.GPSColor = marker.Color;
+                        MyAPIGateway.Session.GPS.AddGps(player.IdentityId, gps);
+                        limit -= 1;
+                        if (limit <= 0)
+                        {
+                            MyAPIGateway.Utilities.ShowMessage("NavMarkers", "Reload created maximum number of missing GPS markers, some markers may not have been created");
+                            break;
+                        }
+                    }
+                }
+            }
+            MyAPIGateway.Utilities.ShowMessage("NavMarkers", "Reloaded nav markers from file");
+        }
+
+
         #endregion
 
         private void CustomActionGetter(IMyTerminalBlock block, List<IMyTerminalAction> actions)
@@ -536,8 +727,42 @@ namespace NavMarkers
             marker.Position = coords;
             marker.Radius = (float)radius;
             marker.Color = color;
-            
+            marker.Active = true;
+
             NavMarkerSession.Instance.NavData.Markers.Dictionary.Add(name, marker);
+            SaveQueued = true;
+        }
+
+        public NavMarker GetMarkerByName(string name)
+        {
+            if (NavData.Markers.Dictionary.ContainsKey(name) == false)
+            {
+                return null;
+            }
+            return NavData.Markers.Dictionary[name];
+        }
+
+        public NavMarker GetMarkerByIndex(int index)
+        {
+            if (index < 0 || index >= NavData.Markers.Dictionary.Count)
+            {
+                return null;
+            }
+            return NavData.Markers.Dictionary.Values.ElementAt(index);
+        }
+
+        public void ToggleMarkerActiveState(string markerName, bool forceState = false, bool newState = false)
+        {
+            NavMarker marker = GetMarkerByName(markerName);
+            if (marker == null)
+            {
+                return;
+            }
+            marker.Active = !marker.Active;
+            if (forceState)
+            {
+                marker.Active = newState;
+            }
             SaveQueued = true;
         }
 

@@ -53,6 +53,50 @@ namespace NavMarkers
             return level == MyPromoteLevel.SpaceMaster || level == MyPromoteLevel.Admin || level == MyPromoteLevel.Owner;
         }
 
+        public static bool TryParseRadiusThenIndex(string[] args, out double radius, out int index)
+        {
+            if (args.Length < 3)
+            {
+                index = -1;
+                radius = 0;
+                return false;
+            }
+            if (!int.TryParse(args[2], out index))
+            {
+                Tools.Log($"{ModName}: Failed to parse int from '{args[2]}'.");
+                radius = 0;
+                return false;
+            }
+            if (!double.TryParse(args[1], out radius))
+            {
+                Tools.Log($"{ModName}: Failed to parse double from '{args[1]}'.");
+                return false;
+            }
+            return true;
+        }
+
+        public static bool TryParseIndexThenRadius(string[] args, out double radius, out int index)
+        {
+            if (args.Length < 3)
+            {
+                index = -1;
+                radius = 0;
+                return false;
+            }
+            if (!int.TryParse(args[1], out index))
+            {
+                Tools.Log($"{ModName}: Failed to parse int from '{args[1]}'.");
+                radius = 0;
+                return false;
+            }
+            if (!double.TryParse(args[2], out radius))
+            {
+                Tools.Log($"{ModName}: Failed to parse double from '{args[2]}'.");
+                return false;
+            }
+            return true;
+        }
+
         public static bool TryParseRadiusAndName(string[] args, out double radius, out string name)
         {
             if (args.Length < 3)

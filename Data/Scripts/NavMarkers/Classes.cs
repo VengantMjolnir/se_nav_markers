@@ -38,6 +38,9 @@ namespace NavMarkers
 
         [ProtoMember(4)]
         public Color Color { get; set; }
+
+        [ProtoMember(5)]
+        public bool Active { get; set; } = true;
     }
 
     public class ChatCommand

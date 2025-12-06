@@ -32,6 +32,8 @@ namespace NavMarkers
 
         private static int SelectedGps = -1;
         private static string SelectedMarker = "";
+        private static double LastSelectedGpsTime = 0;
+        private static double LastSelectedMarkerTime = 0;
 
         public static void Create()
         {
@@ -239,12 +241,25 @@ namespace NavMarkers
         {
             SelectedGps = (int)selectedItems[0].UserData;
             MyLog.Default.WriteLineAndConsole($"Selected GPS from list {SelectedGps}");
+            double time = MyAPIGateway.Session.ElapsedPlayTime.TotalMilliseconds;
+            if (time - LastSelectedGpsTime < 300)
+            {
+                NavAddButton_Action(block);
+            }
+            LastSelectedGpsTime = time;
         }
 
         private static void NavMarkersList_Selected(IMyTerminalBlock block, List<MyTerminalControlListBoxItem> selectedItems)
         {
             SelectedMarker = (string)selectedItems[0].UserData;
             MyLog.Default.WriteLineAndConsole($"Selected Marker from list {SelectedMarker}");
+            double time = MyAPIGateway.Session.ElapsedPlayTime.TotalMilliseconds;
+            if (time - LastSelectedMarkerTime < 300)
+            {
+                NavMarkerSession.Instance.ToggleMarkerActiveState(SelectedMarker);
+                UpdateControls();
+            }
+            LastSelectedMarkerTime = time;
         }
 
         private static bool NavToggle_Getter(IMyTerminalBlock block)
@@ -302,9 +317,11 @@ namespace NavMarkers
 
         private static void FillMarkerList(IMyTerminalBlock block, List<MyTerminalControlListBoxItem> list, List<MyTerminalControlListBoxItem> selected)
         {
+            int i = 0;
             foreach (NavMarker marker in NavMarkerSession.Instance.NavData.Markers.Dictionary.Values)
             {
-                list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(marker.Name), MyStringId.NullOrEmpty, marker.Name));
+                string toggle = marker.Active ? "[×]" : "[  ]";
+                list.Add(new MyTerminalControlListBoxItem(MyStringId.GetOrCompute($"{toggle} {marker.Name}"), MyStringId.NullOrEmpty, marker.Name));
             }
         }
         #endregion
